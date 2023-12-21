@@ -7,7 +7,7 @@ contract FederatedLearningContract {
     struct Task {
         uint taskId;
         address serverId;
-        uint primaryModelId;
+        //uint primaryModelId;
         string ipfsAddress;
         uint creationTime;
         bool completed;
@@ -21,8 +21,9 @@ contract FederatedLearningContract {
     struct UpdatedModel {
         uint taskId;
         address clientAddress; // Use Ethereum address as the client identifier
-        string ipfsProofId;
-        string ipfsModelAddress;
+        string modelHash; // Hash of the model
+        // string clientSignature; // Signature of the client
+        string ipfsId; // IPFS ID
     }
 
     struct Feedback {
@@ -39,8 +40,8 @@ contract FederatedLearningContract {
     mapping(uint => UpdatedModel) public updatedModels;
     mapping(uint => Feedback) public feedbacks;
 
-    event TaskPublished(uint taskId, address serverId, uint primaryModelId, string ipfsAddress, uint creationTime);
-    event ModelUpdated(uint taskId, address clientAddress, string ipfsProofId, string ipfsModelAddress);
+    event TaskPublished(uint taskId, address serverId, string ipfsAddress, uint creationTime);
+    event ModelUpdated(uint taskId, address clientAddress, string modelHash, string ipfsId);
     event FeedbackProvided(uint taskId, address clientAddress, address serverId, uint transactionTime, bool accepted, int8 scoreChange);
     event ClientRegistered(address clientAddress, int8 initialScore);
 
@@ -72,19 +73,19 @@ contract FederatedLearningContract {
     }
 
     // Function to publish a new task
-    function publishTask(uint primaryModelId, string memory ipfsAddress) external onlyOwner {
+    function publishTask(string memory ipfsAddress) external onlyOwner {
         // Generate a unique task ID
         uint taskId = generateUniqueTaskId();
 
         // Validate inputs (add more validation as needed)
-        require(primaryModelId > 0, "Invalid primary model ID");
+        //require(primaryModelId > 0, "Invalid primary model ID");
         require(bytes(ipfsAddress).length > 0, "IPFS address cannot be empty");
 
         // Create a Task object
         Task memory newTask = Task({
             taskId: taskId,
             serverId: msg.sender, // Server's address can be used as an identifier
-            primaryModelId: primaryModelId,
+            //primaryModelId: primaryModelId,
             ipfsAddress: ipfsAddress,
             creationTime: block.timestamp, // Current block timestamp
             completed: false
@@ -94,14 +95,15 @@ contract FederatedLearningContract {
         tasks[taskId] = newTask;
 
         // Emit an event to notify external entities about the new task
-        emit TaskPublished(taskId, msg.sender, primaryModelId, ipfsAddress, block.timestamp);
+        emit TaskPublished(taskId, msg.sender, ipfsAddress, block.timestamp);
     }
 
     // Function to update a model by a client
-    function updateModel(uint taskId, string memory ipfsProofId, string memory ipfsModelAddress) external {
+    function updateModel(uint taskId, string memory modelHash, string memory ipfsId) external {
         // Validate inputs (add more validation as needed)
-        require(bytes(ipfsProofId).length > 0, "IPFS proof ID cannot be empty");
-        require(bytes(ipfsModelAddress).length > 0, "IPFS model address cannot be empty");
+        require(bytes(modelHash).length > 0, "Model hash cannot be empty");
+        // require(bytes(clientSignature).length > 0, "Client signature cannot be empty");
+        require(bytes(ipfsId).length > 0, "IPFS ID cannot be empty");
 
         // Check if the task exists
         require(tasks[taskId].taskId != 0, "Task does not exist");
@@ -113,15 +115,15 @@ contract FederatedLearningContract {
         UpdatedModel memory updatedModel = UpdatedModel({
             taskId: taskId,
             clientAddress: clientAddress,
-            ipfsProofId: ipfsProofId,
-            ipfsModelAddress: ipfsModelAddress
+            modelHash: modelHash,
+            ipfsId: ipfsId
         });
 
         // Store updated model information in the 'updatedModels' mapping
         updatedModels[taskId] = updatedModel;
 
         // Emit an event to notify the server about the updated model
-        emit ModelUpdated(taskId, clientAddress, ipfsProofId, ipfsModelAddress);
+        emit ModelUpdated(taskId, clientAddress, modelHash, ipfsId);
     }
 
     // Function to provide feedback by the server
@@ -161,8 +163,7 @@ contract FederatedLearningContract {
     // Function to update the client's score based on the feedback
     function updateClientScore(address clientAddress, int8 scoreChange) internal {
         // Update the client's score
-        scoreChange+=1;
-        clients[clientAddress].score = scoreChange;
+        clients[clientAddress].score += scoreChange;
 
         // Ensure the score is within a certain range (optional)
         // You can add more logic based on your specific scoring requirements
@@ -173,7 +174,7 @@ contract FederatedLearningContract {
         // Additional logic for rewarding or penalizing the client based on the feedback
         // Add your own reward/penalty mechanism based on the feedback
     }
-
+    
     // Function to get the client ID based on the client's address
     //function getClientId(address clientAddress) internal view returns (uint) {
         // Implement your logic to retrieve the client ID based on the address
