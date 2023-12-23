@@ -8,6 +8,14 @@ import tempfile
 import os 
 
 
+
+def hash_data(data):
+    hash_object = hashlib.sha256()
+    hash_object.update(data.encode('utf-8'))
+    hashed_data= hash_object.hexdigest()
+    return hashed_data
+
+
 # Register the client
 def register_client():
     # Send a registration transaction
@@ -92,12 +100,7 @@ def Ipfs_extraction(Ipfs_data):
 	primary_model = model_data.get("primaryModel", "")
 	return  primary_model, signature
 
-def hash_data(data):
-    hash_object = hashlib.sha256()
-    hash_object.update(data.encode('utf-8'))
-    hashed_data= hash_object.hexdigest()
 
-    return hashed_data
 
 if __name__ == "__main__":
 
@@ -125,10 +128,10 @@ if __name__ == "__main__":
 
     register_client()         # Register to model training
     QPub_key, Qpri_key = generate_keypair()    # Generate post-quantum signaure key pairs
+    Task_id, Ipfs_id = wait_for_task()    # Wait to Task publish 
 
     while True:               # several times contributions
-        
-        Task_id, Ipfs_id = wait_for_task()    # Wait to Task publish 
+          
         Model, Server_signature = fetch_model_from_Ipfs(Ipfs_id)  # Recieve task from Ipfs
     
 # verification Signature

@@ -18,6 +18,16 @@ contract FederatedLearningContract {
         int8 score;
     }
 
+    struct ProjectRegistration {
+        uint taskId;
+        address clientAddress;
+        uint transactionTime;
+        string signature; // Signature of the client
+        string initialDataset; // Initial dataset
+        string modelHash;
+
+    }
+
     struct UpdatedModel {
         uint taskId;
         address clientAddress; // Use Ethereum address as the client identifier
@@ -34,12 +44,13 @@ contract FederatedLearningContract {
         bool accepted;
         int8 scoreChange;
     }
-
+    mapping(uint => ProjectRegistration) public projectRegistrations;
     mapping(uint => Task) public tasks;
     mapping(address => Client) public clients;
     mapping(uint => UpdatedModel) public updatedModels;
     mapping(uint => Feedback) public feedbacks;
 
+    event ProjectRegistered(uint taskId, address clientAddress, uint transactionTime);
     event TaskPublished(uint taskId, address serverId, string ipfsAddress, uint creationTime);
     event ModelUpdated(uint taskId, address clientAddress, string modelHash, string ipfsId);
     event FeedbackProvided(uint taskId, address clientAddress, address serverId, uint transactionTime, bool accepted, int8 scoreChange);
@@ -70,6 +81,38 @@ contract FederatedLearningContract {
 
         // Emit an event to notify external entities about the new client registration
         emit ClientRegistered(clientAddress, initialScore);
+    }
+
+    function registerProject(uint taskId, string memory initialDataset, string memory initialModelHash, string memory signature) external {
+        //require(tasks[taskId].taskId != 0, "Task does not exist");
+        require(!tasks[taskId].completed, "Task is already completed");
+
+        address clientAddress = tasks[taskId].serverId;
+        /*
+        UpdatedModel memory updatedModel = UpdatedModel({
+            taskId: taskId,
+            clientAddress: clientAddress,
+            modelHash: initialModelHash,
+            ipfsId: ""
+        });
+        */
+        ProjectRegistration memory projectReg = ProjectRegistration({
+            taskId: taskId,
+            clientAddress: clientAddress,
+            transactionTime: block.timestamp,
+            signature: signature,
+            initialDataset: initialDataset,
+            modelHash:initialModelHash
+        });
+
+        projectRegistrations[taskId] = projectReg;
+
+        // Emit the ProjectRegistered event to notify external entities
+        emit ProjectRegistered(taskId, clientAddress, block.timestamp);
+        //updatedModels[taskId] = updatedModel;
+        //emit ModelUpdated(taskId, clientAddress, initialModelHash, "");
+        //tasks[taskId].completed = true;
+        //emit FeedbackProvided(taskId, clientAddress, owner, block.timestamp, true, 0);
     }
 
     // Function to publish a new task
