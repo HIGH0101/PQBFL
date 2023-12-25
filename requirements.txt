@@ -2,4 +2,4 @@ web3
 pqcrypto
 cffi
 ipfs-api
-json
+IPFS-Toolkit
