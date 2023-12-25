@@ -1,14 +1,47 @@
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from eth_account import Account
-import ipfshttpclient
-import ipfsApi
+#import ipfshttpclient
+#import ipfsApi
+import ipfs_api
+import tarfile, io ,gzip
 from pqcrypto.sign.dilithium2 import generate_keypair,sign,verify
 import json
 import hashlib
+import os, time, ast
 import tempfile
-import os 
+#import os 
 
+
+def wrapfiles(model_data, signature_data):
+    
+    tar_buffer = io.BytesIO() # Create an in-memory TAR archive
+    # Create a tarfile object
+    with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
+        # Add the model data to the archive
+        model_info = tarfile.TarInfo(name='model.bin')
+        model_info.size = len(model_data)
+        tar.addfile(model_info, io.BytesIO(model_data))
+
+        # Add the signature data to the archive
+        signature_info = tarfile.TarInfo(name='signature.bin')
+        signature_info.size = len(signature_data)
+        tar.addfile(signature_info, io.BytesIO(signature_data))
+
+    tar_data = tar_buffer.getvalue() # Get the TAR archive content as bytes
+    output_file = 'wrapped_data.tar.gz'
+    # Create a gzip compressed file
+    with gzip.open(output_file, 'wb') as gzip_file:
+        gzip_file.write(tar_data)
+
+def extract_files(file_path, file1_name, file2_name):
+    result = {}
+    with gzip.open(file_path, 'rb') as gz_file:
+        with tarfile.open(fileobj=gz_file, mode='r') as tar:
+            for member in tar.getmembers():
+                if member.name == file1_name or member.name == file2_name:
+                    content = tar.extractfile(member)
+                    result[member.name] = content.read()
 
 def hash_data(data):
     hashed_data=hashlib.sha256(data).hexdigest()
@@ -44,49 +77,71 @@ def publish_task(Task_id, Ipfs_id):
     transaction = contract.functions.publishTask(Task_id, Ipfs_id).build_transaction({
         'from': Eth_address,
         'gas': 2000000,
-        'gasPrice': web3.toWei('50', 'gwei'),
+        'gasPrice': web3.to_wei('50', 'gwei'),
         'nonce': nonce,
     })
 
     signed_transaction = web3.eth.account.sign_transaction(transaction, Eth_private_key)
     tx_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
     receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
-    print("Task Published:", receipt)
+    gas_used=receipt['gasUsed']
+    tx_publish = receipt['transactionHash'].hex()
+    print(f"Task published: \n\t Tx_hash: {tx_publish} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id}  " )
+    #return Task_id
+    #print("Task Published:", receipt)
 
-    return receipt
+    #return receipt
 
 def listen_for_updates():
     # Add PoA middleware for Ganache (if needed)
-    web3.middleware_stack.inject(geth_poa_middleware, layer=0)
+    web3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
     # Create an instance of the contract with the ABI and address
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)
 
     # Event filter for the YourContractEvent
-    event_filter = contract.events.YourContractEvent.createFilter(fromBlock="latest")
+    event_filter = contract.events.ModelUpdated.create_filter(fromBlock="latest")
 
     # Loop to listen for events
     while True:
         # Get events since the last checked block
         events = event_filter.get_all_entries()
-
+        
+        if events:
         # Process events
-        for event in events:
-            Task_id = event['args']['taskId']
-            client_address = event['args']['clientAddress']
-            Ipfs_id = event['args']['ipfsId']
+            for event in events:
+                Task_id = event['args']['taskId']
+                client_address = event['args']['clientAddress']
+                Ipfs_id = event['args']['ipfsId']
+                print(f"Update received \n\t Task ID: {Task_id} \n\t Client address: {client_address} \n\t IPFS ID: {Ipfs_id}")
 
         # Wait for new events
-        web3.eth.wait_for_transaction_receipt(events[-1]['transactionHash'], timeout=60)
+            web3.eth.wait_for_transaction_receipt(events[-1]['transactionHash'], timeout=60)
+        else:
+            time.sleep(2)   # Sleep or perform other actions when no new events are found
+
     return  Task_id,Ipfs_id,client_address  
 
-
+'''
 def fetch_model_from_Ipfs(Ipfs_id):
-    Ipfs_data = api.cat(Ipfs_id)
+    Ipfs_data = ipfs_api.http_client.cat(Ipfs_id)
     Model, Signature=Ipfs_data 
 
     return Model , Signature
+'''
 
+def fetch_model_from_Ipfs(Ipfs_id):
+
+    Ipfs_data = ipfs_api.http_client.cat(Ipfs_id)
+    with open("wrapped_data.tar.gz", "wb") as f:
+        f.write(Ipfs_data)
+    zipfile ='wrapped_data.tar.gz' 
+    model_file='model.bin'
+    Signature_file='signature.bin'
+    result=extract_files(zipfile,model_file,Signature_file )
+    Model_data=result[model_file]
+    Signature_data=result[Signature_file]
+    return Model_data , Signature_data
 
 def feedback_TX (task_id, client_address, feedback_score):
     contract = web3.eth.contract(address = contract_address, abi=contract_abi)
@@ -107,8 +162,9 @@ def feedback_TX (task_id, client_address, feedback_score):
 
 def upload_model_to_Ipfs(Model,Signature):
     # Create a temporary directory to store the files
+    '''
     directory_path= os.getcwd()
-    if not os.path.exists(os.path.join(directory_path,'files')):
+    if not os.path.exists(os.path.join(directory_path,'files')):    # create files directory to wrap signature an model
         os.makedirs('files')
         files_path= os.path.join(directory_path,'files')
     else:
@@ -118,21 +174,26 @@ def upload_model_to_Ipfs(Model,Signature):
         #file1_path = os.path.join(temp_dir, "model.txt")
         #file2_path = os.path.join(temp_dir, "signature.txt")
     os.chdir(files_path)
-    with open("Model.txt", "wb") as file1:
+    with open("Model.txt", "wb") as file1:     # write model file 
         file1.write(Model)
         file1.close()
 
-    with open("signature.txt", "wb") as file2:
+    with open("signature.txt", "wb") as file2:     # write signature file 
         file2.write(Signature)
         file2.close()
     #files_path="C:\\Users\\tester\\Desktop\\Post-quantum_Authentication_FL\\files"
-    result = api.add(files_path, recursive=True)
-    #print(result)
-    #cid = result['Hash']
-    files_entry = next((entry for entry in result if entry['Name'] == 'files'), None)
-    print(files_entry)
-    #print ('The model has uploaded successfully')
-    return files_entry
+    os.chdir(directory_path)
+'''
+    wrapfiles(Model, Signature)    # Wrap the model and signature into a zip file
+    print('signature and Model files are saved in wrapped_data.tar.gz')
+
+    result = ipfs_api.http_client.add("wrapped_data.tar.gz", recursive=True)   # Upload the zip file to IPFS
+    start_index = str(result).find('{')
+    end_index = str(result).rfind('}')
+    content_inside_braces = str(result)[start_index:end_index + 1]
+    result_dict = ast.literal_eval(content_inside_braces)
+
+    return result_dict['Hash']
 
 def analyze_model (Local_model,Task_id):
 
@@ -148,7 +209,6 @@ def aggregate_models(Models):
 
 if __name__ == "__main__":
 
-
 # Connect to the local Ganache blockchain
     try:
         ganache_url = "http://127.0.0.1:7545"  
@@ -158,13 +218,13 @@ if __name__ == "__main__":
         print("An exception occurred")
 
 # Connect to Ipfs environment
-    api = ipfsApi.Client('127.0.0.1', 5001)
-    try:
+    #api = ipfsApi.Client('127.0.0.1', 5001)
+    #try:
     # Add a sample file to IPFS
-        result = api.add_str("Hello, IPFS!")
-        print(f"Client connected IPFS. sample string: \n\t string:  Hello, IPFS! \n\t CID:  {result}" )
-    except Exception as e:
-        print("Error:", e)
+    #    result = api.add_str("Hello, IPFS!")
+    #    print(f"Server connected IPFS. sample string: \n\t string:  Hello, IPFS! \n\t CID:  {result}" )
+    #except Exception as e:
+    #    print("Error:", e)
 
 # Load the Ethereum account
     Eth_private_key = "0x795bbddf33a492b134a1e25f112a60b45409899ce96dd7aa577941a4baaff544"  			# Replace with the client's private key
@@ -172,7 +232,7 @@ if __name__ == "__main__":
     Eth_address = account.address
 
 # Load the smart contract ABI and address 
-    contract_address = "0x6D86e8726E9826a3eEc7d6dA55Fcc9bcc4aA0181"   # Replace with the deployed contract address
+    contract_address = "0x0BC9A91B42935A0772F46690106b20cE340E3089"   # Replace with the deployed contract address
    
     with open("contract_ABI.json", "r") as abi_file:
         contract_abi = json.load(abi_file)   # Load ABI from file

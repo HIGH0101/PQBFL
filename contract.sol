@@ -116,29 +116,29 @@ contract FederatedLearningContract {
     }
 
     // Function to publish a new task
-    function publishTask(string memory ipfsAddress) external onlyOwner {
+    function publishTask(uint Task_id, string memory Ipfs_id) external onlyOwner {
         // Generate a unique task ID
-        uint taskId = generateUniqueTaskId();
+        //uint taskId = generateUniqueTaskId();
 
         // Validate inputs (add more validation as needed)
         //require(primaryModelId > 0, "Invalid primary model ID");
-        require(bytes(ipfsAddress).length > 0, "IPFS address cannot be empty");
+        require(bytes(Ipfs_id).length > 0, "IPFS address cannot be empty");
 
         // Create a Task object
         Task memory newTask = Task({
-            taskId: taskId,
+            taskId: Task_id,
             serverId: msg.sender, // Server's address can be used as an identifier
             //primaryModelId: primaryModelId,
-            ipfsAddress: ipfsAddress,
+            ipfsAddress: Ipfs_id,
             creationTime: block.timestamp, // Current block timestamp
             completed: false
         });
 
         // Store task information in the 'tasks' mapping
-        tasks[taskId] = newTask;
+        tasks[Task_id] = newTask;
 
         // Emit an event to notify external entities about the new task
-        emit TaskPublished(taskId, msg.sender, ipfsAddress, block.timestamp);
+        emit TaskPublished(Task_id, msg.sender, Ipfs_id, block.timestamp);
     }
 
     // Function to update a model by a client
