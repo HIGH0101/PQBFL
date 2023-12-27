@@ -44,9 +44,13 @@ def extract_files(file_path, file1_name, file2_name):
     return result
 
 def hash_data(data):
+    '''
     hash_object = hashlib.sha256()
     hash_object.update(data.encode('utf-8'))
     hashed_data= hash_object.hexdigest()
+    return hashed_data
+    '''
+    hashed_data=hashlib.sha256(data).hexdigest()
     return hashed_data
 
 
@@ -61,7 +65,8 @@ def register_client():
     logs = receipt['logs']
     initial_score= [int(log['data'].hex()[66:], 16) for log in logs if log['address'].lower() == contract_address.lower()]
     
-    print(f"Client registered successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei \n\t Score: {initial_score[0]}  ")
+    print(f"Client registered successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei \n\t Score: {initial_score[0]}")
+    return initial_score
 
 # Wait for a task to be published
 def wait_for_task():
@@ -70,15 +75,15 @@ def wait_for_task():
         events = task_event_filter.get_all_entries()
 
         if events:
-            task_id = events[0]['args']['taskId']
+            Task_id = events[0]['args']['taskId']
             server_id = events[0]['args']['serverId']
             # primary_model_id = events[0]['args']['primaryModelId']
             ipfs_address = events[0]['args']['ipfsAddress']
-            print(f"Task Published - Task ID: {task_id}, Server ID: {server_id}, IPFS Address: {ipfs_address}")
+            print(f"Task Published - Task ID: {Task_id}, Server ID: {server_id}, IPFS Address: {ipfs_address}")
             # Download the initial model from IPFS and verify using server public key
             # Add your IPFS download and verification logic here
 
-            return task_id , ipfs_address
+            return Task_id , ipfs_address
 
 def upload_model_to_Ipfs(Model,Signature):
     '''
@@ -136,9 +141,7 @@ def update_model_Tx(Task_id,Ipfs_id,hashed_Model):
     tx_registration=tx_receipt['transactionHash'].hex()
     
     print(f"Model updated successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei")
-
-    print("Now we have to wait for Feedback!!!")
-
+    '''
     # Wait for feedback
     feedback_event_filter = contract.events.FeedbackProvided.create_filter(fromBlock="latest")
     feedback_events = feedback_event_filter.get_all_entries()
@@ -148,15 +151,30 @@ def update_model_Tx(Task_id,Ipfs_id,hashed_Model):
         accepted = feedback['args']['accepted']
         score_change = feedback['args']['scoreChange']
 
-        print(f"Feedback Received - Accepted: {accepted}, Score Change: {score_change}")    
+        print(f"Feedback Received - Accepted: {accepted}, Score: {score_change}")    
+    '''
+def listen_for_feedback():
 
+    while True:
+        feedback_event_filter = contract.events.FeedbackProvided.create_filter(fromBlock="latest")
+        feedback_events = feedback_event_filter.get_all_entries()
+        if feedback_events:
+
+            feedback = feedback_events[0]
+            accepted = feedback['args']['accepted']
+            score_change = feedback['args']['scoreChange']
+
+            print(f"Feedback Received - Accepted: {accepted}, Score: {score_change}")
+
+    return score_change
+
+'''
 def Ipfs_extraction(Ipfs_data):
-
 	model_data = json.loads(Ipfs_data)
 	signature = model_data.get("signature", "")
 	primary_model = model_data.get("primaryModel", "")
 	return  primary_model, signature
-
+'''
 
 
 if __name__ == "__main__":
@@ -184,13 +202,18 @@ if __name__ == "__main__":
     client_address = account.address
 
 # Load the smart contract ABI and address 
-    contract_address = "0x0BC9A91B42935A0772F46690106b20cE340E3089"   # Replace with the deployed contract address
+    contract_address = "0x0009673f58C24EE0025b8c9b79318016a0152a2c"   # Replace with the deployed contract address
     with open("contract_ABI.json", "r") as abi_file:
         contract_abi = json.load(abi_file)      # Load ABI from file
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
 
-    register_client()         # Register to model training
-    QPub_key, Qpri_key = generate_keypair()    # Generate post-quantum signaure key pairs
+    ini_score = register_client()         # Register to model training
+
+    #QPub_key, Qpri_key = generate_keypair()    # Generate post-quantum signaure key pairs
+    main=os.getcwd()
+    Qpri_key=open(main + "\clients\keys\pq_pri_key.txt",'rb').read()
+    QPub_key=open(main + "\clients\keys\pq_pub_key.txt",'rb').read()
+
     Task_id, Ipfs_id = wait_for_task()    # Wait to Task publish 
 
     while True:               # several times contributions
@@ -198,15 +221,18 @@ if __name__ == "__main__":
         Model, Server_signature = fetch_model_from_Ipfs(Ipfs_id)  # Recieve task from Ipfs
     
 # verification Signature
-        Server_pubkey = ''    # the server's public key is recieve from secure channel
+        Server_pubkey = open(main + "\server\keys\pq_pub_key.txt",'rb').read()    # the server's public key is recieve from secure channel
         assert verify(Server_pubkey, Model, Server_signature)
 
 # Train_local_model
-        Local_model=training('primary_Model')   
+        
+        Local_model= Model  # training('primary_Model')   
         Model_signature = sign(Qpri_key,Local_model)
 
         Hashed_model = hash_data(Local_model)
 
 	# we need a json structre for local-data including Qpub_key, Model-Hash,Ipfs-id, Task_Id, Time,...  to send as tx
         Uploaded_Ipfs_id = upload_model_to_Ipfs(Local_model,Model_signature)
-        update_model_Tx(Task_id,Local_model,Hashed_model)
+        update_model_Tx(Task_id,Uploaded_Ipfs_id,Hashed_model)
+
+        score=listen_for_feedback()

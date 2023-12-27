@@ -1,5 +1,5 @@
 #  Quantum-secure blockchain-based for Federated Learning IoT (FL-IoT) environments
-This project is implementation of a quantum-secure blockchain-based mechanism for Federated Learning IoT (FL-IoT) environments.
+This project is implementation of a quantum-secure blockchain-based framework for Federated Learning IoT (FL-IoT) environments.
 It garantees post-quantum authentication of contributors in a federated learnind project based on blockchain and IPFS technology. the paper related to project can be download here.
 
 
@@ -35,6 +35,7 @@ You have to compile c files
 ```
 ipfs daemon
 ```
-2. Run Blockchain: 
+**2. Run Blockchain:** 
+
 Double click ganache simulation to provide us 10 accounts with 100 ETH
 

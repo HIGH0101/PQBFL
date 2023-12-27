@@ -170,18 +170,15 @@ contract FederatedLearningContract {
     }
 
     // Function to provide feedback by the server
-    function provideFeedback(uint taskId, bool accepted, int8 scoreChange) external onlyOwner {
+    function provideFeedback(uint taskId, address clientAddress , int8 scoreChange) external onlyOwner {
         // Validate inputs (add more validation as needed)
         require(tasks[taskId].taskId != 0, "Task does not exist");
 
         // Ensure the task is completed before providing feedback
-        require(tasks[taskId].completed, "Task is not completed");
+        //require(tasks[taskId].completed, "Task is not completed");
 
         // Get the server ID from the owner's address
         address serverId = msg.sender;
-
-        // Get the client ID from the task
-        address clientAddress = tasks[taskId].serverId;
 
         // Record the feedback information
         Feedback memory feedback = Feedback({
@@ -189,7 +186,7 @@ contract FederatedLearningContract {
             clientAddress: clientAddress,
             serverId: serverId,
             transactionTime: block.timestamp,
-            accepted: accepted,
+            accepted: true,
             scoreChange: scoreChange
         });
 
@@ -200,7 +197,7 @@ contract FederatedLearningContract {
         updateClientScore(clientAddress, scoreChange);
 
         // Emit an event to notify about the provided feedback
-        emit FeedbackProvided(taskId, clientAddress, serverId, block.timestamp, accepted, scoreChange);
+        emit FeedbackProvided(taskId, clientAddress, serverId, block.timestamp, true, scoreChange);
     }
 
     // Function to update the client's score based on the feedback
