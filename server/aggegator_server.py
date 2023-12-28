@@ -64,8 +64,8 @@ def register_project(initialDataset, initialModelHash, signature):
         'nonce': nonce,
     })
     signed_transaction = web3.eth.account.sign_transaction(transaction, Eth_private_key)
-    tx_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-    receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+    tx_sent = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+    receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
 
     gas_used=receipt['gasUsed']
     tx_registration = receipt['transactionHash'].hex()
@@ -73,32 +73,35 @@ def register_project(initialDataset, initialModelHash, signature):
     return Task_id
 
 
-def publish_task(Task_id, Ipfs_id):
+def publish_task(Task_id, Hash_model,Hash_Model_signature, Ipfs_id):
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)
     nonce = web3.eth.get_transaction_count(Eth_address)
 
-    transaction = contract.functions.publishTask(Task_id, Ipfs_id).build_transaction({
+    transaction = contract.functions.publishTask(Task_id,Hash_model,Hash_Model_signature,Ipfs_id).build_transaction({
         'from': Eth_address,
         'gas': 2000000,
         'gasPrice': web3.to_wei('50', 'gwei'),
         'nonce': nonce,
     })
-    signed_transaction = web3.eth.account.sign_transaction(transaction, Eth_private_key)
-    tx_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-    receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+    signed_tx = web3.eth.account.sign_transaction(transaction, Eth_private_key)
+    tx_sent = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+    receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
     gas_used=receipt['gasUsed']
     tx_publish = receipt['transactionHash'].hex()
-    print(f"Task published: \n\t Tx_hash: {tx_publish} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id}  " )
+    print(f"Task published: \n\t Tx_hash: {tx_publish} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id}" )
 
 
 def listen_for_updates():
     # Add PoA middleware for Ganache (if needed)
-    web3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    
+    if geth_poa_middleware not in web3.middleware_onion:
+        web3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
     # Create an instance of the contract with the ABI and address
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)
 
     # Loop to listen for events
+    print("listening for upadates...")
     while True:
         # Event filter for the YourContractEvent
         event_filter = contract.events.ModelUpdated.create_filter(fromBlock="latest")
@@ -110,9 +113,11 @@ def listen_for_updates():
             for event in events:
                 Task_id = event['args']['taskId']
                 client_address = event['args']['clientAddress']
+                Hash_model = event['args']['modelHash']
                 Ipfs_id = event['args']['ipfsId']
                 print(f"Update received \n\t Task ID: {Task_id} \n\t Client address: {client_address} \n\t IPFS ID: {Ipfs_id}")
-                return  Task_id,client_address,Ipfs_id  
+
+                return  Task_id,client_address,Hash_model,Ipfs_id  
 
         # Wait for new events
             #web3.eth.wait_for_transaction_receipt(events[-1]['transactionHash'], timeout=60)
@@ -154,12 +159,11 @@ def feedback_TX (task_id, client_address, feedback_score):
     })
 
     signed_transaction = web3.eth.account.sign_transaction(transaction, Eth_private_key)
-    tx_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-    receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+    tx_sent = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+    receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
     gas_used=receipt['gasUsed']
     tx_feedback = receipt['transactionHash'].hex()
-    print(f"Task published: \n\t Tx_hash: {tx_feedback} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id} \n\t score: {Task_id} " )
-    print("Feedback Provided:", receipt)
+    print(f"Feedback Provided: \n\t Tx_hash: {tx_feedback} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id} \n\t score: {Task_id}" )
 
 
 def upload_model_to_Ipfs(Model,Signature):
@@ -234,7 +238,7 @@ if __name__ == "__main__":
     Eth_address = account.address
 
 # Load the smart contract ABI and address 
-    contract_address = "0x0009673f58C24EE0025b8c9b79318016a0152a2c"   # Replace with the deployed contract address
+    contract_address = "0xEa2ff1BEa9B4235F6D77F1A065C7d85E0D25b690"   # Replace with the deployed contract address
    
     with open("contract_ABI.json", "r") as abi_file:
         contract_abi = json.load(abi_file)   # Load ABI from file
@@ -243,36 +247,40 @@ if __name__ == "__main__":
 
     #QPub_key, Qpri_key = generate_keypair()    # Generate post-quantum signaure key pairs
     main=os.getcwd()
-    Qpri_key=open(main + "\server\keys\pq_pri_key.txt",'rb').read()
-    QPub_key=open(main + "\server\keys\pq_pub_key.txt",'rb').read()
+    Qpri_key=open(main + "\\server\\keys\\pq_pri_key.txt",'rb').read()
+    QPub_key=open(main + "\\server\\keys\\pq_pub_key.txt",'rb').read()
 
 
     Initial_dataset = b'ipfs://Qm...'
     Initial_model = b'ipfs://Qm...'
     Model_signature = sign(Qpri_key,Initial_model)
 
-    Hashed_init_model = hash_data(Initial_model)
-    Hashed_init_dataset = hash_data(Initial_dataset)
-    Hashed_Model_signature = hash_data(Model_signature)
+    Hash_init_model = hash_data(Initial_model)
+    Hash_init_dataset = hash_data(Initial_dataset)
+    Hash_Model_signature = hash_data(Model_signature)
 
-    Task_id = register_project(Hashed_init_dataset, Hashed_init_model, Hashed_Model_signature)
+    Task_id = register_project(Hash_init_dataset, Hash_init_model, Hash_Model_signature)
 
-    Uploaded_ipfs_id = upload_model_to_Ipfs(Initial_model,Model_signature)
 
-    publish_task(Task_id, Uploaded_ipfs_id)  # First publication round
-
+    Model=Initial_model
+    Hash_model=Hash_init_model 
     Models=[]
     round=3
     for i in range(round):
+
+        Uploaded_ipfs_id = upload_model_to_Ipfs(Model, Model_signature)
+        publish_task(Task_id, Hash_model,Hash_Model_signature,Uploaded_ipfs_id)                 # publishing in rounds
+        print(f"Round {i+1}: listening for upadates...")
         while True:
-            
-            # verification Signature
-
-            Task_id,Client_address,Ipfs_id =listen_for_updates()
-
+                
+            Task_id,Client_address,Hash_model,Ipfs_id =listen_for_updates()
             Local_model, Client_signature = fetch_model_from_Ipfs(Ipfs_id)
 
-            Client_pq_pubkey = open(main + "\clients\keys\pq_pub_key.txt",'rb').read()
+        # Verify the downloaded model hash with the hash in the transaction    
+            assert Hash_model==hash_data(Local_model)
+
+        # verification Signature
+            Client_pq_pubkey = open(main + "\\clients\\keys\\pq_pub_key.txt",'rb').read()  # It is suppose the client's public key is received from a secure channel
             assert verify(Client_pq_pubkey, Local_model, Client_signature)
 
             Res, Feedback_score = analyze_model(Local_model,Task_id)
@@ -280,13 +288,15 @@ if __name__ == "__main__":
                 Models.append(Local_model)
                 feedback_TX (Task_id, Client_address, Feedback_score)
             
-            if len(Models)==10:
-                updated_model=aggregate_models(Models) 
-                break
-        Model_signature = sign(Qpri_key,Local_model)
-
-    #ipfs_id = "Qm..."
-    #publish_task(task_id, ipfs_id)
+            Count_local_models=len(Models)
+            if Count_local_models==10:
+                Updated_model=aggregate_models(Models) 
+                break 
+        Model=Updated_model  
+        Hash_model = hash_data(Model)
+        Model_signature = sign(Qpri_key,Model)
+        Hash_Model_signature = hash_data(Model_signature) 
+        
 
 # Continue listening for updates and providing feedback...
 

@@ -1,5 +1,5 @@
 web3
 pqcrypto
 cffi
-ipfs-api
 IPFS-Toolkit
+py-solc-x

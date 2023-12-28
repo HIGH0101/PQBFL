@@ -8,6 +8,8 @@ contract FederatedLearningContract {
         uint taskId;
         address serverId;
         //uint primaryModelId;
+        string HashModel;
+        string HashSignature;
         string ipfsAddress;
         uint creationTime;
         bool completed;
@@ -51,7 +53,7 @@ contract FederatedLearningContract {
     mapping(uint => Feedback) public feedbacks;
 
     event ProjectRegistered(uint taskId, address clientAddress, uint transactionTime);
-    event TaskPublished(uint taskId, address serverId, string ipfsAddress, uint creationTime);
+    event TaskPublished(uint taskId, address serverId, string HashModel, string HashSignature, string ipfsAddress, uint creationTime);
     event ModelUpdated(uint taskId, address clientAddress, string modelHash, string ipfsId);
     event FeedbackProvided(uint taskId, address clientAddress, address serverId, uint transactionTime, bool accepted, int8 scoreChange);
     event ClientRegistered(address clientAddress, int8 initialScore);
@@ -116,7 +118,7 @@ contract FederatedLearningContract {
     }
 
     // Function to publish a new task
-    function publishTask(uint Task_id, string memory Ipfs_id) external onlyOwner {
+    function publishTask(uint Task_id, string memory HashModel, string memory HashSignature, string memory Ipfs_id) external onlyOwner {
         // Generate a unique task ID
         //uint taskId = generateUniqueTaskId();
 
@@ -130,6 +132,8 @@ contract FederatedLearningContract {
             serverId: msg.sender, // Server's address can be used as an identifier
             //primaryModelId: primaryModelId,
             ipfsAddress: Ipfs_id,
+            HashModel: HashModel,
+            HashSignature: HashSignature,
             creationTime: block.timestamp, // Current block timestamp
             completed: false
         });
@@ -138,7 +142,7 @@ contract FederatedLearningContract {
         tasks[Task_id] = newTask;
 
         // Emit an event to notify external entities about the new task
-        emit TaskPublished(Task_id, msg.sender, Ipfs_id, block.timestamp);
+        emit TaskPublished(Task_id, msg.sender, HashModel, HashSignature, Ipfs_id, block.timestamp);
     }
 
     // Function to update a model by a client
