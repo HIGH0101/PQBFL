@@ -140,6 +140,18 @@
 			{
 				"indexed": false,
 				"internalType": "string",
+				"name": "HashModel",
+				"type": "string"
+			},
+			{
+				"indexed": false,
+				"internalType": "string",
+				"name": "HashSignature",
+				"type": "string"
+			},
+			{
+				"indexed": false,
+				"internalType": "string",
 				"name": "ipfsAddress",
 				"type": "string"
 			},
@@ -310,6 +322,16 @@
 			},
 			{
 				"internalType": "string",
+				"name": "HashModel",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "HashSignature",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
 				"name": "Ipfs_id",
 				"type": "string"
 			}
@@ -377,6 +399,16 @@
 			{
 				"internalType": "string",
 				"name": "ipfsAddress",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "HashModel",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "HashSignature",
 				"type": "string"
 			},
 			{
