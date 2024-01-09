@@ -3,3 +3,4 @@ pqcrypto
 cffi
 IPFS-Toolkit
 py-solc-x
+torch torchvision torchaudio
