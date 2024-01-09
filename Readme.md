@@ -5,10 +5,12 @@ It garantees post-quantum authentication of contributors in a federated learnind
 
 
 ## prerequisites
-Download and run Ganache  from 
-you have to install IPFS CLI (kubo) from here https://docs.ipfs.tech/how-to/kubo-basic-cli/#install-kubo
 
-**Enable "Libp2pStreamMounting" in IPFS:**
+**1. Download  Ganache  from **
+
+**2. you have to install IPFS CLI (kubo) from here:** https://docs.ipfs.tech/how-to/kubo-basic-cli/#install-kubo
+
+**2. Enable "Libp2pStreamMounting" in IPFS:**
 In CLI:
 ```
 ipfs config --json Experimental.Libp2pStreamMounting true
@@ -35,7 +37,12 @@ You have to compile c files
 ```
 ipfs daemon
 ```
+
 **2. Run Blockchain:** 
 
-Double click ganache simulation to provide us 10 accounts with 100 ETH
+Double click ganache emulation to provide us 10 accounts with 100 ETH
+
+**3. Compile and Deploy**
+
+you must compile and deploy the solidity contract on Ethereum blockchain(gnanache) 
 
