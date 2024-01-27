@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract FederatedLearningContract {
+contract PQB_FederatedLearning {
     address public owner;
 
     struct Task {
@@ -51,12 +51,14 @@ contract FederatedLearningContract {
     mapping(address => Client) public clients;
     mapping(uint => UpdatedModel) public updatedModels;
     mapping(uint => Feedback) public feedbacks;
+    mapping(uint => bool) public projectTerminated;
 
     event ProjectRegistered(uint taskId, address clientAddress, uint transactionTime);
     event TaskPublished(uint taskId, address serverId, string HashModel, string HashSignature, string ipfsAddress, uint creationTime);
     event ModelUpdated(uint taskId, address clientAddress, string modelHash, string ipfsId);
     event FeedbackProvided(uint taskId, address clientAddress, address serverId, uint transactionTime, bool accepted, int8 scoreChange);
     event ClientRegistered(address clientAddress, int8 initialScore);
+    event ProjectTerminated(uint taskId);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only the owner can call this function");
@@ -226,6 +228,21 @@ contract FederatedLearningContract {
         // For simplicity, let's assume the client's address is the client ID
     //    return clientAddress;
     //}
+
+    function finishProject(uint taskId) external onlyOwner {
+        // Ensure the project exists
+        require(tasks[taskId].taskId != 0, "Project does not exist");
+
+        // Mark the project as terminated
+        projectTerminated[taskId] = true;
+
+        // Emit an event to notify about project termination
+        emit ProjectTerminated(taskId);
+    }
+    // Function to check if a project is terminated
+    function isProjectTerminated(uint taskId) external view returns (bool) {
+        return projectTerminated[taskId];
+    }
 
     // Function to generate a unique task ID (replace with your own logic)
     function generateUniqueTaskId() internal view returns (uint) {
