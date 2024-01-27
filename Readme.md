@@ -1,3 +1,4 @@
+
 #  Quantum-secure and blockchain-based Federated Learning in IoT (FL-IoT)
 This project is implementation of a quantum-secure blockchain-based framework for Federated Learning IoT (FL-IoT) environments.
 It garantees post-quantum authentication of contributors in a federated learnind project based on blockchain and IPFS technology. the paper related to project can be download here.
@@ -6,7 +7,8 @@ It garantees post-quantum authentication of contributors in a federated learnind
 
 ## prerequisites
 
-**1. Download  Ganache  from:** https://trufflesuite.com/ganache/
+**1. Download  Ganache  from  here:** https://trufflesuite.com/ganache/
+
 
 **2. you have to install IPFS CLI (kubo) from here:** https://docs.ipfs.tech/how-to/kubo-basic-cli/#install-kubo
 
