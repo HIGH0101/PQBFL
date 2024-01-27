@@ -2,5 +2,6 @@ web3
 pqcrypto
 cffi
 IPFS-Toolkit
+scikit-learn
 py-solc-x
 torch torchvision torchaudio
