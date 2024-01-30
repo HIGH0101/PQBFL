@@ -4,28 +4,28 @@ from pqcrypto.sign import dilithium2 #generate_keypair,sign,verify
 import json
 import ipfs_api
 import tarfile, io ,gzip
-import os, time, ast
+import os, sys,time, ast
 import hashlib
 #import tempfile
 import os 
 import train_model
 
-def wrapfiles(model_data, signature_data,client_eth_address):
+def wrapfiles(model_data, signature_data,ETH_address):
     
     tar_buffer = io.BytesIO() # Create an in-memory TAR archive
     # Create a tarfile object
     with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
         # Add the model data to the archive
-        model_info = tarfile.TarInfo(name=f'local_model_{client_eth_address}.pth')
+        model_info = tarfile.TarInfo(name=f'local_model_{ETH_address}.pth')
         model_info.size = len(model_data)
         tar.addfile(model_info, io.BytesIO(model_data))
 
         # Add the signature data to the archive
-        signature_info = tarfile.TarInfo(name=f'signature_{client_eth_address}.bin')
+        signature_info = tarfile.TarInfo(name=f'signature_{ETH_address}.bin')
         signature_info.size = len(signature_data)
         tar.addfile(signature_info, io.BytesIO(signature_data))
     tar_data = tar_buffer.getvalue() # Get the TAR archive content as bytes
-    output_file = 'wrapped_data.tar.gz'
+    output_file = f'wrapped_data_{ETH_address}.tar.gz'
     # Create a gzip compressed file
     with gzip.open(output_file, 'wb') as gzip_file:
         gzip_file.write(tar_data)
@@ -58,7 +58,8 @@ def register_client():
     tx_registration=receipt['transactionHash'].hex()
     logs = receipt['logs']
     initial_score= [int(log['data'].hex()[66:], 16) for log in logs if log['address'].lower() == contract_address.lower()]
-    print(f"Client registered successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei \n\t Score: {initial_score[0]}")
+    print(f"Client {client_eth_address} registered successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei \n\t Score: {initial_score[0]}\n")
+    print('-'*80)
     return initial_score
 
 
@@ -96,7 +97,8 @@ def listen_for_task(timeout):
                 Hashed_model = events[0]['args']['HashModel']
                 Hash_signature = events[0]['args']['HashSignature']
                 ipfs_address = events[0]['args']['ipfsAddress']
-                print(f"Received a published task:\n\t Task id: {Task_id}\n\t Server addr: {server_address}\n\t IPFS addr: {ipfs_address}")
+                print(f"Received a published task:\n\t Task id: {Task_id}\n\t Server addr: {server_address}\n\t IPFS addr: {ipfs_address}\n")
+                print('-'*80)
                 # Download the initial model from IPFS and verify using server public key
                 # Add your IPFS download and verification logic here
                 break
@@ -113,11 +115,11 @@ def listen_for_task(timeout):
     return Task_id, Hashed_model, Hash_signature, ipfs_address, server_address
 
 
-def upload_model_to_Ipfs(Model,Signature,client_eth_address):
+def upload_model_to_Ipfs(Model,Signature,ETH_address):
 
-    wrapfiles(Model, Signature,client_eth_address)    # Wrap the model and signature into a zip file
+    wrapfiles(Model, Signature,ETH_address)    # Wrap the model and signature into a zip file
     print('signature and Model files are saved in wrapped_data.tar.gz')
-    result = ipfs_api.http_client.add("wrapped_data.tar.gz", recursive=True)   # Upload the zip file to IPFS
+    result = ipfs_api.http_client.add(f"wrapped_data_{ETH_address}.tar.gz", recursive=True)   # Upload the zip file to IPFS
     start_index = str(result).find('{')
     end_index = str(result).rfind('}')
     content_inside_braces = str(result)[start_index:end_index + 1]
@@ -126,14 +128,14 @@ def upload_model_to_Ipfs(Model,Signature,client_eth_address):
     return result_dict['Hash']
 
 
-def fetch_model_from_Ipfs(Ipfs_id):
+def fetch_model_from_Ipfs(Ipfs_id,ETH_address):
 
     Ipfs_data = ipfs_api.http_client.cat(Ipfs_id)
-    with open("wrapped_data.tar.gz", "wb") as f:
+    with open(f"wrapped_data_{ETH_address}.tar.gz", "wb") as f:
         f.write(Ipfs_data)
-    zipfile ='wrapped_data.tar.gz' 
-    model_file='model.bin'
-    Signature_file='signature.bin'
+    zipfile =f'wrapped_data_{ETH_address}.tar.gz' 
+    model_file=f'model_{ETH_address}.pth'
+    Signature_file=f'signature_{ETH_address}.bin'
     result=extract_files(zipfile,model_file,Signature_file )
     Model_data=result[model_file]
     Signature_data=result[Signature_file]
@@ -148,11 +150,12 @@ def update_model_Tx(Task_id,Ipfs_id,hashed_Model):
     gas_used=tx_receipt['gasUsed']
     tx_registration=tx_receipt['transactionHash'].hex()
     
-    print(f"Model updated successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei")
+    print(f"Model updated successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei\n")
+    print('-'*70)
 
 
 def listen_for_feedback():
-    print("linstening for feedback...")
+    print("Listening for feedback...")
     while True:
         feedback_event_filter = contract.events.FeedbackProvided.create_filter(fromBlock="latest")
         feedback_events = feedback_event_filter.get_all_entries()
@@ -162,7 +165,8 @@ def listen_for_feedback():
             accepted = feedback['args']['accepted']
             score_change = feedback['args']['scoreChange']
 
-            print(f"Feedback Received - Accepted: {accepted}, Score: {score_change}")
+            print(f"Feedback Received - Accepted: {accepted}, Score: {score_change}\n")
+            print('-'*80)
 
             return score_change
 
@@ -170,23 +174,30 @@ def listen_for_feedback():
 
 if __name__ == "__main__":
 
-    main_dir=os.getcwd()
+    #main_dir=os.getcwd()
+
+# Load the Ethereum account
+    Eth_private_key=sys.argv[1]
+    #Eth_private_key = "0xc06c2455c932c665d635b794b3c82261aa48d222de059eb8e65dc859059fc478"  			# Replace with the client's private key
+    account = Account.from_key(Eth_private_key)
+    client_eth_address = account.address
+
 # Connect to the local Ganache blockchain
     try:
         ganache_url = "http://127.0.0.1:7545"  
         web3 = Web3(Web3.HTTPProvider(ganache_url))
-        print("Client connected to Ganache Successfully")
+        print(f"Client connected to Ganache Successfully")
     except:
         print("An exception occurred")
 
-# Load the Ethereum account
-    #Eth_private_key = input("Enter private address: ")
-    Eth_private_key = "0xe6090bb5353b875dae2f0c5f24995af6e54ea99d6435e9f9d79ea6e6154d2ec4"  			# Replace with the client's private key
-    account = Account.from_key(Eth_private_key)
-    client_eth_address = account.address
+# Load the smart contract ABI and address
+    contract_address = sys.argv[2] 
+    #contract_address = "0xFDe5D3c7085228CEdc20cfaF286648f89009C394"   # Replace with the deployed contract address
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+# Get the absolute path to the parent directory of the script directory
+    main_dir = os.path.dirname(script_dir)
 
-# Load the smart contract ABI and address 
-    contract_address = "0xf4C582C278F6b89e604003d63606a2568941e822"   # Replace with the deployed contract address
     with open(main_dir+"/contract/contract-abi.json", "r") as abi_file:
         contract_abi = json.load(abi_file)      # Load ABI from file
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
@@ -207,13 +218,13 @@ if __name__ == "__main__":
         Task_id, Hash_model,Hash_signature,Ipfs_id, server_eth_address= listen_for_task(timeout)          # Wait to Task publish 
 
         if task_terminated(Task_id):
-            print(f"Server has terminated Task id: {Task_id} ")
+            print(f"Server has already terminated Task id: {Task_id} ")
             break
         if Task_id==0:
             print(f"No new task received within the timeout period ({timeout} seconds). Exit")
             break           
         print(f"Round {i}")
-        Model, server_model_signature = fetch_model_from_Ipfs(Ipfs_id)  # Recieve task from Ipfs
+        Model, server_model_signature = fetch_model_from_Ipfs(Ipfs_id,server_eth_address)  # Recieve task from Ipfs
 
     # Verify the downloaded signature and model hashes with the hashes in the transaction
         assert Hash_model==hash_data(Model)  # این قسمت با استفاده از امضا میشه تصدیق بشه ایا نیاز هست که هش هم چک بشه؟
@@ -225,8 +236,9 @@ if __name__ == "__main__":
         assert dilithium2.verify(Server_pubkey, Model,server_model_signature), "model signature verification failed"
         
     # Train_local_model
-        dataset_part = input("Enter part dataset number: ")
-        train_model.train(dataset_part,client_eth_address)   # train and save the model in files folder
+        #dataset_part = input("Enter part dataset number: ")
+        print("Start training...")
+        train_model.train(client_eth_address)   # train and save the model in files folder
         Local_model= open(main_dir + f"/client/files/local_model_{client_eth_address}.pth",'rb').read()     
         Model_signature = dilithium2.sign(Qpri_key,Local_model)
 
