@@ -111,7 +111,7 @@ def aggregate_models(client_addrs):
 
     # Calculate accuracy
     accuracy = accuracy_score(all_labels, all_predictions)
-    print(f'Test Accuracy: {accuracy:.4f}')
+    print(f'Test Accuracy on global model: {accuracy:.4f}')
 
     # Save the globally aggregated model
     torch.save(global_model.state_dict(), main_dir+'/files/global_model.pth')

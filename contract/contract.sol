@@ -89,7 +89,8 @@ contract PQB_FederatedLearning {
 
     function registerProject(uint taskId, string memory initialDataset, string memory initialModelHash, string memory signature) external {
         //require(tasks[taskId].taskId != 0, "Task does not exist");
-        require(!tasks[taskId].completed, "Task is already completed");
+        //require(!tasks[taskId].completed, "Task is already completed");
+        require(!projectTerminated[taskId], "Task is already terminated");
 
         address clientAddress = tasks[taskId].serverId;
         /*

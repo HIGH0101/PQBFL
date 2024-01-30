@@ -52,15 +52,15 @@ def validate_model(model, dataloader, device):
     print(f'Validation Accuracy: {accuracy:.4f}')
 
 
-def train(part_number,client_eth_address):
+def train(client_eth_address):
 
     main_dir = os.path.dirname(__file__)
 
-    x_train_file = main_dir+f'/files/divided_dataset/x_train_part{part_number}.txt'
-    y_train_file = main_dir+f'/files/divided_dataset/y_train_part{part_number}.txt'
+    #x_train_file = main_dir+f'/files/divided_dataset/x_train_part{part_number}.txt'
+    #y_train_file = main_dir+f'/files/divided_dataset/y_train_part{part_number}.txt'
     
-    #x_train_file = 'C:\\Users\\tester\\Desktop\\Post-quantum_Authentication_FL\\dataset\\UCI HAR Dataset\\train\\X_train.txt'
-    #y_train_file = 'C:\\Users\\tester\\Desktop\\Post-quantum_Authentication_FL\\dataset\\UCI HAR Dataset\\train\\y_train.txt'
+    x_train_file = 'C:\\Users\\tester\\Desktop\\Post-quantum_Authentication_FL\\dataset\\UCI HAR Dataset\\train\\X_train.txt'
+    y_train_file = 'C:\\Users\\tester\\Desktop\\Post-quantum_Authentication_FL\\dataset\\UCI HAR Dataset\\train\\y_train.txt'
 
     
     # Load features and labels
