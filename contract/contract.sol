@@ -145,7 +145,7 @@ contract PQB_FederatedLearning {
         tasks[Task_id] = newTask;
 
         // Emit an event to notify external entities about the new task
-        emit TaskPublished(Task_id, msg.sender, HashModel, HashSignature, Ipfs_id, block.timestamp);
+        emit TaskPublished(Task_id, msg.sender, HashModel, HashSignature, Ipfs_id,block.timestamp);
     }
 
     // Function to update a model by a client

@@ -10,7 +10,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
 # Function for training on a given dataset
-def train_model(model, dataloader, validation_dataloader,criterion, optimizer, device, epochs):
+def train_model(model, dataloader, validation_dataloader,criterion, optimizer,epochs ,device):
     #validate_every=10
     print_every=len(dataloader)
     model.to(device)
@@ -52,15 +52,16 @@ def validate_model(model, dataloader, device):
     print(f'Validation Accuracy: {accuracy:.4f}')
 
 
-def train(client_eth_address):
+def train(num_epochs,client_eth_address):
 
-    main_dir = os.path.dirname(__file__)
+ 
 
-    #x_train_file = main_dir+f'/files/divided_dataset/x_train_part{part_number}.txt'
-    #y_train_file = main_dir+f'/files/divided_dataset/y_train_part{part_number}.txt'
-    
-    x_train_file = 'C:\\Users\\tester\\Desktop\\Post-quantum_Authentication_FL\\dataset\\UCI HAR Dataset\\train\\X_train.txt'
-    y_train_file = 'C:\\Users\\tester\\Desktop\\Post-quantum_Authentication_FL\\dataset\\UCI HAR Dataset\\train\\y_train.txt'
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+# Get the absolute path to the parent directory of the script directory
+    main_dir = os.path.dirname(script_dir)
+
+    x_train_file = main_dir+'/dataset/UCI HAR Dataset/train/X_train.txt'
+    y_train_file = main_dir+'/dataset/UCI HAR Dataset/train/y_train.txt'
 
     
     # Load features and labels
@@ -147,5 +148,5 @@ def train(client_eth_address):
     validation_dataloader = DataLoader(validation_dataset, batch_size=64)
 
     # Training on each part
-    train_model(model, train_dataloader,validation_dataloader, criterion, optimizer, device='cpu', epochs=10)
-    torch.save(model.state_dict(), main_dir+f'/files/local_model_{client_eth_address}.pth')
+    train_model(model, train_dataloader,validation_dataloader, criterion, optimizer, num_epochs,device='cpu')
+    torch.save(model.state_dict(), main_dir+f'/client/files/local_model_{client_eth_address}.pth')

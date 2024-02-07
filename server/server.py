@@ -71,8 +71,8 @@ def hash_data(data):
     return hashed_data
 
 
-def register_project(initialDataset, initialModelHash, signature):
-    Task_id = int(input("Enter a Task ID for registration: ")) # generate a Task identifier 
+def register_project(initialDataset, initialModelHash, signature, Task_id):
+    #Task_id = int(input("Enter a Task ID for registration: ")) # generate a Task identifier 
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)
 
     if not contract.functions.isProjectTerminated(Task_id).call():
@@ -90,12 +90,16 @@ def register_project(initialDataset, initialModelHash, signature):
         receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
         gas_used=receipt['gasUsed']
         tx_registration = receipt['transactionHash'].hex()
-        print(f"Project Registered: \n\t Tx_hash: {tx_registration} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id}\n" )
-        print('-'*80)
+        print(f'''Project Registered on contract:
+              Tx_hash: {tx_registration}
+              Gas: {gas_used} Wei
+              Task ID: {Task_id}''')
+
+        print('-'*75)
         return Task_id
     else:
         print(f"Task {Task_id} is already terminated. Please Change the Task ID")
-        return None
+        return 'fail'
 
 def terminate_project(Task_id):
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)
@@ -111,8 +115,11 @@ def terminate_project(Task_id):
     receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
     gas_used=receipt['gasUsed']
     tx_publish = receipt['transactionHash'].hex()
-    print(f"Task terminated: \n\t Tx_hash: {tx_publish} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id}\n" )
-    print('-'*80)
+    print(f'''Task terminated:
+          Tx_hash: {tx_publish}
+          Gas: {gas_used} Wei
+          Task ID: {Task_id}''')
+    print('-'*75)
 
 def publish_task(Task_id, Hash_model,Hash_Model_signature, Ipfs_id):
 
@@ -129,8 +136,12 @@ def publish_task(Task_id, Hash_model,Hash_Model_signature, Ipfs_id):
     receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
     gas_used=receipt['gasUsed']
     tx_publish = receipt['transactionHash'].hex()
-    print(f"Task published: \n\t Tx_hash: {tx_publish} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id}\n" )
-    print('-'*80)
+    print(f'''Task published:
+          Tx_hash: {tx_publish}
+          Gas: {gas_used} Wei
+          Task ID: {Task_id}
+          IPFS ID: {Ipfs_id}''')
+    print('-'*75)
 
 def listen_for_updates(event_filter, event_queue):
 
@@ -143,7 +154,7 @@ def listen_for_updates(event_filter, event_queue):
     event_filter = contract.events.ModelUpdated.create_filter(fromBlock="latest")           # Get events since the last checked block
     
     # Loop to listen for events
-    print("listening for upadates...")
+    #print("listening for upadates...")
     while True:
         events = event_filter.get_new_entries()
         if events:
@@ -182,14 +193,19 @@ def feedback_TX (task_id, client_address, feedback_score):
     receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
     gas_used=receipt['gasUsed']
     tx_feedback = receipt['transactionHash'].hex()
-    print(f"Feedback Provided: \n\t Tx_hash: {tx_feedback} \n\t Gas: {gas_used} Wei \n\t Task_id: {Task_id} \n\t score: {Task_id}\n" )
-    print('-'*80)
+    print(f'''Feedback provided:
+          Client address:{client_address}
+          Tx_hash: {tx_feedback}
+          Gas: {gas_used} Wei
+          Task ID: {Task_id}
+          Score: {Task_id}''')
+    print('-'*75)
 
 
 def upload_model_to_Ipfs(Model,Signature,ETH_address):
     
     wrapfiles(Model, Signature,ETH_address) # Wrap the model and signature into a zip file  
-    print('signature and Model files are saved in wrapped_data.tar.gz')
+    print('Model files are uploaded to IPFS\n')
     result = ipfs_api.http_client.add(f"wrapped_data_{ETH_address}.tar.gz", recursive=True)   # Upload the zip file to IPFS
     start_index = str(result).find('{')
     end_index = str(result).rfind('}')
@@ -211,9 +227,9 @@ if __name__ == "__main__":
     try:
         ganache_url = "http://127.0.0.1:7545"  
         web3 = Web3(Web3.HTTPProvider(ganache_url))
-        print("Server connected to Ganache Successfully")
+        print("Server connected to blockchain (Ganache) successfully\n")
     except:
-        print("An exception occurred in connecting to Ganache")
+        print("An exception occurred in connecting to blockchain (Ganache)")
 
 # Load the Ethereum account
     Eth_private_key=sys.argv[1]    
@@ -224,6 +240,7 @@ if __name__ == "__main__":
 # Load the smart contract ABI and address 
     #contract_address = "0xf70aFB518461b96671D2DA9b8C8Db71993A5E8e9"   # Replace with the deployed contract address
     contract_address = sys.argv[2]
+    Task_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
 # Get the absolute path to the parent directory of the script directory
@@ -250,8 +267,9 @@ if __name__ == "__main__":
     Hash_Model_signature = hash_data(Model_signature)
 
     # register FL project on blockchain
-    Task_id = register_project(Hash_init_dataset, Hash_init_model, Hash_Model_signature)
-    if Task_id==None:
+    
+    registeration=register_project(Hash_init_dataset, Hash_init_model, Hash_Model_signature,Task_id)
+    if registeration=='fail':
         sys.exit()  # Exit the code if the task is already terminated
     
     Model=Initial_model
@@ -276,8 +294,11 @@ if __name__ == "__main__":
                 Client_eth_addr = event['args']['clientAddress']
                 Hash_model = event['args']['modelHash']
                 Ipfs_id = event['args']['ipfsId']
-                print(f"Update received \n\t Task ID: {Task_id} \n\t Client address: {Client_eth_addr} \n\t IPFS ID: {Ipfs_id}\n")
-                print('-'*70)
+                print(f'''Local model update received:
+                Task ID: {Task_id}
+                Client address: {Client_eth_addr}
+                IPFS ID: {Ipfs_id}''')
+                print('-'*75)
                 client_addrs.append(Client_eth_addr)
                 Local_model, Client_signature = fetch_model_from_Ipfs(Ipfs_id,Client_eth_addr)
 

@@ -3,69 +3,89 @@ import time
 import subprocess
 import os
 import platform
+import argparse
+import sys
 
-'''
-def run_client(eth_address, contract_address, client_path):
-    subprocess.call(["wt", "-w", "0","python", client_path, eth_address, contract_address])
 
-def run_server(server_address, contract_address, server_path):
-    subprocess.call(["wt", "-w", "0","python", server_path, server_address, contract_address])
-'''
-def run_client(eth_address, contract_address, client_path):
-    # Determine platform-specific command for opening a new terminal window
-    if platform.system() == "Windows":
-        cmd = f"start cmd /k python {client_path} {eth_address} {contract_address} && pause"
-    elif platform.system() == "Darwin":  # macOS
-        cmd = f"osascript -e 'tell app \"Terminal\" to do script \"python {client_path} {eth_address} {contract_address}; read -p \\\"Press Enter to close...\\\"\"'"
-    else:  # Linux (assuming gnome-terminal)
-        cmd = f"gnome-terminal -- bash -c \"python {client_path} {eth_address} {contract_address}; read -p 'Press Enter to close...'\""
-
+def run_client(client_eth_key, contract_address, client_path, num_epochs):
+    cmd = f"python {client_path} {client_eth_key} {contract_address} {num_epochs}"
     subprocess.call(cmd, shell=True)
 
-def run_server(server_address,contract_address, server_path):
-    # Determine platform-specific command for opening a new terminal window
-    if platform.system() == "Windows":
-        cmd = f"start cmd /k python {server_path} {server_address} {contract_address} && pause"
-    elif platform.system() == "Darwin":  # macOS
-        cmd = f"osascript -e 'tell app \"Terminal\" to do script \"python {server_path} {server_address} {contract_address}; read -p \\\"Press Enter to close...\\\"\"'"
-    else:  # Linux (assuming gnome-terminal)
-        cmd = f"gnome-terminal -- bash -c \"python {server_path} {server_address} {contract_address}; read -p 'Press Enter to close...'\""
-
+def run_server(server_eth_key, contract_address, server_path, task_id):
+    cmd = f"python {server_path} {server_eth_key} {contract_address} {task_id}"
     subprocess.call(cmd, shell=True)
 
 if __name__ == "__main__":
-    # Prompt the user for server address, contract address, and client addresses
-    server_address = input("Enter server private key: ")
-    contract_address = input("Enter contract address: ")
-    
-    eth_addresses = []
-    for i in range(3):
-        eth_address = input(f"Enter client {i+1} private key : ")
-        eth_addresses.append(eth_address)
-    
-    # Specify the paths to server.py and client.py
-    main_dir = os.path.dirname(__file__)
-    server_path = main_dir+"/server/server.py"
-    client_path = main_dir+"/client/client.py"
+    parser = argparse.ArgumentParser(description="Run client or server mode with specific arguments")
+    parser.add_argument("-m", "--mode", choices=["client", "server"], help="Mode (client or server)", required=True)
+    parser.add_argument("-c", "--contract_address", help="Contract address in hex(0x...)", required=True)
+    parser.add_argument("-k", "--private_key", help="ETH private key in hex (0x...)")
+    parser.add_argument("-e", "--num_epochs", type=int, help="Number of epochs for training in client mode")
+    parser.add_argument("-id", "--task_id", type=int, help="ID number for the task in server mode")
 
-    # Create threads for each client
-    client_threads = []
-    for eth_address in eth_addresses:
-        t = threading.Thread(target=run_client, args=(eth_address, contract_address, client_path))
-        client_threads.append(t)
+    args = parser.parse_args()
+
+    main_dir = os.path.dirname(__file__)
+
+    if args.mode == "client":
+        if not (args.private_key and args.num_epochs):
+            parser.error("For client mode, --private_key and --num_epochs are required.")
+        client_eth_key = args.private_key
+        num_epochs = args.num_epochs
+        client_path = main_dir+"/client/client.py"   # Replace with the path to your client.py script
+        run_client(client_eth_key, args.contract_address, client_path, num_epochs)
+    elif args.mode == "server":
+        if not args.task_id:
+            parser.error("For server mode, -id is required.")
+        server_eth_key = args.private_key  # Assuming server_address is stored in private_key argument
+        server_path = main_dir+"/server/server.py"    # Replace with the path to your server.py script
+        run_server(server_eth_key, args.contract_address, server_path, args.task_id)
+
+'''
+import sys
+import threading
+import time
+import subprocess
+import os
+
+def run_client(eth_address, contract_address, client_path, num_epochs):
+    cmd = f"python {client_path} {eth_address} {contract_address} {num_epochs}"
+    subprocess.call(cmd, shell=True)
+
+def run_server(server_address, contract_address, server_path, task_id):
+    cmd = f"python {server_path} {server_address} {contract_address} {task_id}"
+    subprocess.call(cmd, shell=True)
+
+if __name__ == "__main__":
+    if len(sys.argv) < 4:
+        print("Usage:")
+        print("  For client mode: python main.py client <client_private_key> <contract_address> <num_epochs>")
+        print("  For server mode: python main.py server <server_private_key> <contract_address> <task_id>")
+        sys.exit(1)
+
+    main_dir = os.path.dirname(__file__)
     
-    # Start all client threads
-    for t in client_threads:
-        t.start()
-    
-    # Wait for 3 seconds
-    time.sleep(3)
-    
-    # Start the server
-    server_thread = threading.Thread(target=run_server, args=(server_address, contract_address, server_path))
-    server_thread.start()
-    
-    # Wait for all threads to finish
-    for t in client_threads:
-        t.join()
-    server_thread.join()
+
+    mode = sys.argv[1].lower()
+    address = sys.argv[2]
+    contract_address = sys.argv[3]
+
+    if mode == "client":
+        if len(sys.argv) != 5:
+            print("Usage: python main.py client <eth_address> <contract_address> <num_epochs>")
+            sys.exit(1)
+        eth_address = address
+        client_path = main_dir+"/client/client.py"  
+        num_epochs = int(sys.argv[4])
+        run_client(eth_address, contract_address, client_path, num_epochs)
+    elif mode == "server":
+        if len(sys.argv) != 5:
+            print("Usage: python main.py server <server_address> <contract_address> <task_id>")
+            sys.exit(1)
+        server_address = address
+        server_path = main_dir+"/server/server.py"  
+        task_id = int(sys.argv[4])
+        run_server(server_address, contract_address, server_path, task_id)
+    else:
+        print("Invalid mode. Please enter 'client' or 'server'.")
+'''

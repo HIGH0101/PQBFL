@@ -1,6 +1,6 @@
 from web3 import Web3
 from eth_account import Account
-from pqcrypto.sign import dilithium2 #generate_keypair,sign,verify
+from pqcrypto.sign import dilithium2 , sphincs_sha256_128f_robust #generate_keypair,sign,verify
 import json
 import ipfs_api
 import tarfile, io ,gzip
@@ -58,8 +58,12 @@ def register_client():
     tx_registration=receipt['transactionHash'].hex()
     logs = receipt['logs']
     initial_score= [int(log['data'].hex()[66:], 16) for log in logs if log['address'].lower() == contract_address.lower()]
-    print(f"Client {client_eth_address} registered successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei \n\t Score: {initial_score[0]}\n")
-    print('-'*80)
+    print(f'''Client is registered on contract successfully
+          Client Address: {client_eth_address}
+          Tx: {tx_registration}
+          Gas: {gas_used} Wei
+          Initial Score: {initial_score[0]}''')
+    print('-'*75)
     return initial_score
 
 
@@ -97,8 +101,13 @@ def listen_for_task(timeout):
                 Hashed_model = events[0]['args']['HashModel']
                 Hash_signature = events[0]['args']['HashSignature']
                 ipfs_address = events[0]['args']['ipfsAddress']
-                print(f"Received a published task:\n\t Task id: {Task_id}\n\t Server addr: {server_address}\n\t IPFS addr: {ipfs_address}\n")
-                print('-'*80)
+                creation_time = time.gmtime(int(events[0]['args']['creationTime']))
+                print(f"""Received a published task:
+    Task ID: {Task_id}
+    Server address: {server_address}
+    IPFS ID: {ipfs_address}
+    Time: {time.strftime("%Y-%m-%d %H:%M:%S (UTC)", creation_time)}""")
+                print('-'*75)
                 # Download the initial model from IPFS and verify using server public key
                 # Add your IPFS download and verification logic here
                 break
@@ -118,7 +127,7 @@ def listen_for_task(timeout):
 def upload_model_to_Ipfs(Model,Signature,ETH_address):
 
     wrapfiles(Model, Signature,ETH_address)    # Wrap the model and signature into a zip file
-    print('signature and Model files are saved in wrapped_data.tar.gz')
+    print('Model files are uploaded to IPFS\n')
     result = ipfs_api.http_client.add(f"wrapped_data_{ETH_address}.tar.gz", recursive=True)   # Upload the zip file to IPFS
     start_index = str(result).find('{')
     end_index = str(result).rfind('}')
@@ -150,12 +159,14 @@ def update_model_Tx(Task_id,Ipfs_id,hashed_Model):
     gas_used=tx_receipt['gasUsed']
     tx_registration=tx_receipt['transactionHash'].hex()
     
-    print(f"Model updated successfully \n\t Tx: {tx_registration} \n\t Gas: {gas_used} Wei\n")
-    print('-'*70)
+    print(f'''Local model updated successfully
+          Tx: {tx_registration}
+          Gas: {gas_used} Wei''')
+    print('-'*75)
 
 
 def listen_for_feedback():
-    print("Listening for feedback...")
+    print("Waiting for feedback...")
     while True:
         feedback_event_filter = contract.events.FeedbackProvided.create_filter(fromBlock="latest")
         feedback_events = feedback_event_filter.get_all_entries()
@@ -164,9 +175,13 @@ def listen_for_feedback():
             feedback = feedback_events[0]
             accepted = feedback['args']['accepted']
             score_change = feedback['args']['scoreChange']
+            server_addr=feedback['args']['serverId']
 
-            print(f"Feedback Received - Accepted: {accepted}, Score: {score_change}\n")
-            print('-'*80)
+            print(f'''Feedback model received:
+            Status: {accepted}
+            Score: {score_change}
+            Server address: {server_addr}''')
+            print('-'*75)
 
             return score_change
 
@@ -182,18 +197,20 @@ if __name__ == "__main__":
     account = Account.from_key(Eth_private_key)
     client_eth_address = account.address
 
+    contract_address = sys.argv[2] 
+    #contract_address = "0xFDe5D3c7085228CEdc20cfaF286648f89009C394"   # Replace with the deployed contract address
+    num_epochs=int(sys.argv[3])
+
 # Connect to the local Ganache blockchain
     try:
         ganache_url = "http://127.0.0.1:7545"  
         web3 = Web3(Web3.HTTPProvider(ganache_url))
-        print(f"Client connected to Ganache Successfully")
+        print(f"Client connected to blockchain (Ganache) successfully\n")
     except:
         print("An exception occurred")
 
 # Load the smart contract ABI and address
-    contract_address = sys.argv[2] 
-    #contract_address = "0xFDe5D3c7085228CEdc20cfaF286648f89009C394"   # Replace with the deployed contract address
-    
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
 # Get the absolute path to the parent directory of the script directory
     main_dir = os.path.dirname(script_dir)
@@ -205,7 +222,8 @@ if __name__ == "__main__":
     ini_score = register_client()         # Register to model training
 
     QPub_key, Qpri_key = dilithium2.generate_keypair()    # Generate post-quantum signaure key pairs
-
+    #QPub_key, Qpri_key=sphincs_sha256_128f_robust.generate_keypair()
+  
     open(main_dir + f"/client/keys/Qpri_key_{client_eth_address}.txt",'wb').write(Qpri_key)
     open(main_dir + f"/client/keys/Qpub_key_{client_eth_address}.txt",'wb').write(QPub_key)
     
@@ -238,7 +256,8 @@ if __name__ == "__main__":
     # Train_local_model
         #dataset_part = input("Enter part dataset number: ")
         print("Start training...")
-        train_model.train(client_eth_address)   # train and save the model in files folder
+        
+        train_model.train(num_epochs,client_eth_address)   # train and save the model in files folder
         Local_model= open(main_dir + f"/client/files/local_model_{client_eth_address}.pth",'rb').read()     
         Model_signature = dilithium2.sign(Qpri_key,Local_model)
 
