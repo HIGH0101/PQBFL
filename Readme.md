@@ -48,6 +48,18 @@ Double click ganache emulation to provide us 10 accounts with 100 ETH
 
 you must compile and deploy the solidity contract on Ethereum blockchain(gnanache) 
 
+## Usage:
+```
+main.py [-h] [-m {client,server}] [-c CONTRACT_ADDRESS] [-k PRIVATE_KEY] [-e NUM_EPOCHS] [-id TASK_ID]
+```
+**Example client mode:**
+```
+python main.py -m client -k 0x8066640e13243b835a97322b56a47a85d352f3b3c1a5e88b72136e38fa8ab0cf -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -e 8
+```
+**Example server mode:**
+```
+python main.py -m server -k 0xa640db19ba46309d661d7434203293271a6bf8ce6b446462395dbfe4f6a70db8 -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -id 22
+```
 
 ## Note
 Currently, the existing implementation does not support previously released tasks and only checks the last block for the current task. This means that if the server first publishes the task while the clients are not listening to receive the task, these clients cannot receive the previously published task. Therefore, clients should first start listening to receive a task as soon as it is published on the server. This is more of a programming problem for the industrial version, and in our academic framework, there is no need to implement it at the moment, and this amount is sufficient for our experiments. It can be considered for the next steps.
