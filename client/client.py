@@ -1,6 +1,6 @@
 from web3 import Web3
 from eth_account import Account
-from pqcrypto.sign import dilithium2 , sphincs_sha256_128f_robust #generate_keypair,sign,verify
+from pqcrypto.sign import dilithium2 , sphincs_sha256_128f_simple #generate_keypair,sign,verify
 import json
 import ipfs_api
 import tarfile, io ,gzip
@@ -49,21 +49,47 @@ def hash_data(data):
 
 
 # Register the client
-def register_client():
+def register_client(pq_PubKey,Project_id):
+        # Send a registration transaction
+    try:
+        Call_registration = contract.functions.registerClient(pq_PubKey,int(Project_id)).transact({'from': client_eth_address})
+        receipt = web3.eth.wait_for_transaction_receipt(Call_registration)
+        gas_used=receipt['gasUsed']
+        tx_registration=receipt['transactionHash'].hex()
+        logs = receipt['logs']
+        log_data_bytes=logs[0]['data']
 
-    # Send a registration transaction
-    Call_registration = contract.functions.registerClient().transact({'from': client_eth_address})
-    receipt = web3.eth.wait_for_transaction_receipt(Call_registration)
-    gas_used=receipt['gasUsed']
-    tx_registration=receipt['transactionHash'].hex()
-    logs = receipt['logs']
-    initial_score= [int(log['data'].hex()[66:], 16) for log in logs if log['address'].lower() == contract_address.lower()]
-    print(f'''Client is registered on contract successfully
-          Client Address: {client_eth_address}
-          Tx: {tx_registration}
-          Gas: {gas_used} Wei
-          Initial Score: {initial_score[0]}''')
-    print('-'*75)
+        project_id_bytes = log_data_bytes[32:64]  # Extract the segment where the initial score is stored with padding
+        project_id = int.from_bytes(project_id_bytes[-1:], byteorder='big', signed=True)
+
+        initial_score_bytes = log_data_bytes[64:96]  # Extract the segment where the initial score is stored with padding
+        initial_score = int.from_bytes(initial_score_bytes[-1:], byteorder='big', signed=True)
+
+        # The offset is a 32-byte integer, but the actual content starts after this 32-byte length indicator.
+        offset = int.from_bytes(log_data_bytes[96:128], byteorder='big')
+        pq_publicKey_length = int.from_bytes(log_data_bytes[offset:offset+32], byteorder='big')  # Length of the pq_publicKey
+        pq_publicKey_bytes = log_data_bytes[offset+32:offset+32+pq_publicKey_length]  # Extract pq_publicKey using its length
+        pq_publicKey = pq_publicKey_bytes.decode('utf-8')  # Assuming the public key is ASCII/UTF-8 encoded
+        assert pq_publicKey==pq_PubKey, 'On-chain pq_pubkey is not same as generated pq_pubkey !!'
+
+        print(f'''Client is registered on contract successfully
+            Tx: {tx_registration}  
+            Your Address: {client_eth_address}
+            Project ID: {project_id}
+            Gas: {gas_used} Wei
+            Initial Score: {initial_score}
+            pq_PublicKey: {pq_publicKey}''')
+        print('-'*75)
+    except Exception as e:
+    # Check if the error is due to the registration being completed
+        if "Registration completed" in str(e):
+            print("The project has reached its limit for client registrations. No more registrations are accepted.")
+            sys.exit()
+        else:
+            # Handle other types of contract logic errors
+            print(f"An unexpected error occurred: {e}")
+            sys.exit()
+
     return initial_score
 
 
@@ -72,11 +98,39 @@ def task_terminated(Task_Id):
     return contract.functions.isProjectTerminated(Task_Id).call()
 
 
+def listen_for_projcet():
+    print("Listen for project...")
+    while True:
+        try:
+            task_event_filter = contract.events.ProjectRegistered.create_filter(fromBlock="latest")
+            events = task_event_filter.get_all_entries()
+            if events:
+                    project_id = events[0]['args']['project_id']
+                    cnt_clients = events[0]['args']['cnt_clients']
+                    server_address = events[0]['args']['serverAddress']
+                    creation_time = time.gmtime(int(events[0]['args']['transactionTime']))
+                    server_pq_pubkey = events[0]['args']['pq_publicKey']
+                    print(f"""Received a project:
+                        Poject ID: {project_id}
+                        Server address: {server_address}
+                        required client count : {cnt_clients}
+                        Time: {time.strftime("%Y-%m-%d %H:%M:%S (UTC)", creation_time)}
+                        server_pq_pubkey: {server_pq_pubkey} """)
+                    print('-'*75)
+                    break
+        except Exception as e:
+            print(f"Error occurred while fetching events: {e}")
+            break
+
+    return project_id, server_address,cnt_clients, server_pq_pubkey        
+
+
+
 # Wait for a task to be published
 def listen_for_task(timeout):
     print("Listen for task...")
     start_time = time.time()
-    Task_id = Hashed_model = Hash_signature = ipfs_address = server_address = 0  # Initialize with default value
+    Task_id = Hashed_model = Hash_signature = ipfs_address = server_address=0  # Initialize with default value
 
     while True:
         try:
@@ -102,11 +156,12 @@ def listen_for_task(timeout):
                 Hash_signature = events[0]['args']['HashSignature']
                 ipfs_address = events[0]['args']['ipfsAddress']
                 creation_time = time.gmtime(int(events[0]['args']['creationTime']))
+
                 print(f"""Received a published task:
-    Task ID: {Task_id}
-    Server address: {server_address}
-    IPFS ID: {ipfs_address}
-    Time: {time.strftime("%Y-%m-%d %H:%M:%S (UTC)", creation_time)}""")
+                    Task ID: {Task_id}
+                    Server address: {server_address}
+                    IPFS ID: {ipfs_address}
+                    Time: {time.strftime("%Y-%m-%d %H:%M:%S (UTC)", creation_time)}""")
                 print('-'*75)
                 # Download the initial model from IPFS and verify using server public key
                 # Add your IPFS download and verification logic here
@@ -186,20 +241,22 @@ def listen_for_feedback():
             return score_change
 
 
-
 if __name__ == "__main__":
 
     #main_dir=os.getcwd()
 
 # Load the Ethereum account
     Eth_private_key=sys.argv[1]
-    #Eth_private_key = "0xc06c2455c932c665d635b794b3c82261aa48d222de059eb8e65dc859059fc478"  			# Replace with the client's private key
-    account = Account.from_key(Eth_private_key)
-    client_eth_address = account.address
+    #Eth_private_key = "0xbc9e55abc2bf517b36223d3b26c6ec0b6531836d1ee1a85369ba919ab7d12c24"  			# Replace with the client's private key
 
     contract_address = sys.argv[2] 
-    #contract_address = "0xFDe5D3c7085228CEdc20cfaF286648f89009C394"   # Replace with the deployed contract address
+    #contract_address = "0x9EAc910242E3Af9b4719Ac9C6d80775d31123453"   # Replace with the deployed contract address
+    
     num_epochs=int(sys.argv[3])
+    #num_epochs=5
+
+    account = Account.from_key(Eth_private_key)
+    client_eth_address = account.address
 
 # Connect to the local Ganache blockchain
     try:
@@ -219,19 +276,20 @@ if __name__ == "__main__":
         contract_abi = json.load(abi_file)      # Load ABI from file
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
 
-    ini_score = register_client()         # Register to model training
-
-    QPub_key, Qpri_key = dilithium2.generate_keypair()    # Generate post-quantum signaure key pairs
-    #QPub_key, Qpri_key=sphincs_sha256_128f_robust.generate_keypair()
-  
-    open(main_dir + f"/client/keys/Qpri_key_{client_eth_address}.txt",'wb').write(Qpri_key)
-    open(main_dir + f"/client/keys/Qpub_key_{client_eth_address}.txt",'wb').write(QPub_key)
+    Project_id,server_address,cnt_clients,server_pq_pubkey=listen_for_projcet()
     
-    #Qpri_key=open(main_dir + "/client/keys/pq_pri_key.txt",'rb').read()
-    #QPub_key=open(main_dir + "/client/keys/pq_pub_key.txt",'rb').read()
+    #pq_PubKey, pq_priKey = dilithium2.generate_keypair()    # Generate post-quantum signaure key pairs
+    pq_PubKey, pq_priKey=sphincs_sha256_128f_simple.generate_keypair()
+    time.sleep(0.5)
+    ini_score = register_client(pq_PubKey.hex(),Project_id)         # Register to model training
+    open(main_dir + f"/client/keys/Qpri_key_{client_eth_address}.txt",'wb').write(pq_priKey)
+    open(main_dir + f"/client/keys/Qpub_key_{client_eth_address}.txt",'wb').write(pq_PubKey)
+    
+    #pq_priKey=open(main_dir + "/client/keys/pq_pri_key.txt",'rb').read()
+    #pq_PubKey=open(main_dir + "/client/keys/pq_pub_key.txt",'rb').read()
     
     i=1
-    timeout=80
+    timeout=120
     while True:                 # several times contributions
         Task_id, Hash_model,Hash_signature,Ipfs_id, server_eth_address= listen_for_task(timeout)          # Wait to Task publish 
 
@@ -249,9 +307,12 @@ if __name__ == "__main__":
         assert Hash_signature==hash_data(server_model_signature)
         
     # verification Signature
-        Server_pubkey = open( f"C:/Users/tester/Desktop/Post-quantum_Authentication_FL/server/keys/Qpub_key_{server_eth_address}.txt",'rb').read() 
+        #Server_pubkey = open( f"C:/Users/tester/Desktop/Post-quantum_Authentication_FL/server/keys/Qpub_key_{server_eth_address}.txt",'rb').read() 
         #Server_pubkey = open(main_dir + f"/server/keys/Qpub_key_{server_eth_address}.txt",'rb').read()    # It's suppose the server's public key is received from a secure channel
-        assert dilithium2.verify(Server_pubkey, Model,server_model_signature), "model signature verification failed"
+        #assert dilithium2.verify(Server_pubkey, Model,server_model_signature), "model signature verification failed"
+        server_pq_pubkey=bytes.fromhex(server_pq_pubkey)
+        assert sphincs_sha256_128f_simple.verify(server_pq_pubkey, Model,server_model_signature), "model signature verification failed"
+
         
     # Train_local_model
         #dataset_part = input("Enter part dataset number: ")
@@ -259,8 +320,8 @@ if __name__ == "__main__":
         
         train_model.train(num_epochs,client_eth_address)   # train and save the model in files folder
         Local_model= open(main_dir + f"/client/files/local_model_{client_eth_address}.pth",'rb').read()     
-        Model_signature = dilithium2.sign(Qpri_key,Local_model)
-
+        #Model_signature = dilithium2.sign(pq_priKey,Local_model)
+        Model_signature =  sphincs_sha256_128f_simple.sign(pq_priKey,Local_model)
         Hash_model = hash_data(Local_model)
 
 	# we need a json structre for local-data including Qpub_key, Model-Hash,Ipfs-id, Task_Id, Time,...  to send as tx

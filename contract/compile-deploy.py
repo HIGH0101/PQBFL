@@ -5,10 +5,6 @@ from solcx import compile_standard
 import os
 
 
-# User input for deployer account and private key
-deployer_account = input("Enter deployer account address: ")
-private_key = input("Enter deployer private key: ")
-
  #Connect to Ganache (local blockchain)
 ganache_url = "http://127.0.0.1:7545"  # Update with your Ganache URL
 web3 = Web3(HTTPProvider(ganache_url))
@@ -17,7 +13,11 @@ web3 = Web3(HTTPProvider(ganache_url))
 if not web3.is_connected():
     print("Error: Unable to connect to Ganache. Please check the URL and try again.")
 else:
-    print("Connected to Ganache")
+    print("Connected to Blockchain (Ganache)")
+
+    # User input for deployer account and private key
+    deployer_account = input("Enter deployer account address: ")
+    private_key = input("Enter deployer private key: ")
     # Set the deployer account as the default account
     web3.eth.default_account = deployer_account
 

@@ -17,16 +17,18 @@ contract PQB_FederatedLearning {
 
     struct Client {
         address clientAddress; // Use Ethereum address as the client identifier
+        uint project_id;
         int8 score;
+        string pq_publicKey;
     }
 
-    struct ProjectRegistration {
-        uint taskId;
-        address clientAddress;
+    struct Project {
+        uint project_id;
+        int8 cnt_clients;
+        address serverAddress;
         uint transactionTime;
-        string signature; // Signature of the client
-        string initialDataset; // Initial dataset
-        string modelHash;
+        string pq_publicKey;
+        int8 registeredClients;
 
     }
 
@@ -46,18 +48,18 @@ contract PQB_FederatedLearning {
         bool accepted;
         int8 scoreChange;
     }
-    mapping(uint => ProjectRegistration) public projectRegistrations;
+    mapping(uint => Project) public project;
     mapping(uint => Task) public tasks;
     mapping(address => Client) public clients;
     mapping(uint => UpdatedModel) public updatedModels;
     mapping(uint => Feedback) public feedbacks;
     mapping(uint => bool) public projectTerminated;
 
-    event ProjectRegistered(uint taskId, address clientAddress, uint transactionTime);
+    event ProjectRegistered(uint project_id,int8 cnt_clients , address serverAddress, uint transactionTime,string pq_publicKey);
     event TaskPublished(uint taskId, address serverId, string HashModel, string HashSignature, string ipfsAddress, uint creationTime);
     event ModelUpdated(uint taskId, address clientAddress, string modelHash, string ipfsId);
     event FeedbackProvided(uint taskId, address clientAddress, address serverId, uint transactionTime, bool accepted, int8 scoreChange);
-    event ClientRegistered(address clientAddress, int8 initialScore);
+    event ClientRegistered(address clientAddress,uint project_id,int8 initialScore, string pq_publicKey);
     event ProjectTerminated(uint taskId);
 
     modifier onlyOwner() {
@@ -70,29 +72,32 @@ contract PQB_FederatedLearning {
     }
 
     // Function to register a new client
-    function registerClient() external {
+    function registerClient(string calldata pq_publicKey, uint project_id) external {
         // Use Ethereum address as the client identifier
+        require(project[project_id].registeredClients < project[project_id].cnt_clients, "Registration completed");
         address clientAddress = msg.sender;
+        
 
-        // Initialize the client's score (you can set it to zero initially)
         int8 initialScore = 0;
 
         // Store client information in the 'clients' mapping
         clients[clientAddress] = Client({
             clientAddress: clientAddress,
-            score: initialScore
+            score: initialScore,
+            project_id:project_id,
+            pq_publicKey: pq_publicKey
         });
-
+        project[project_id].registeredClients += 1;
         // Emit an event to notify external entities about the new client registration
-        emit ClientRegistered(clientAddress, initialScore);
+        emit ClientRegistered(clientAddress, project_id, initialScore, pq_publicKey);
     }
 
-    function registerProject(uint taskId, string memory initialDataset, string memory initialModelHash, string memory signature) external {
+    function registerProject(uint project_id, int8 cnt_clients,string memory pq_publicKey) external {
         //require(tasks[taskId].taskId != 0, "Task does not exist");
         //require(!tasks[taskId].completed, "Task is already completed");
-        require(!projectTerminated[taskId], "Task is already terminated");
+        require(!projectTerminated[project_id], "Task is already terminated");
 
-        address clientAddress = tasks[taskId].serverId;
+        address serverAddress = tasks[project_id].serverId;
         /*
         UpdatedModel memory updatedModel = UpdatedModel({
             taskId: taskId,
@@ -101,19 +106,19 @@ contract PQB_FederatedLearning {
             ipfsId: ""
         });
         */
-        ProjectRegistration memory projectReg = ProjectRegistration({
-            taskId: taskId,
-            clientAddress: clientAddress,
+        Project memory projectReg = Project({
+            project_id: project_id,
+            cnt_clients: cnt_clients,
+            serverAddress: serverAddress,
             transactionTime: block.timestamp,
-            signature: signature,
-            initialDataset: initialDataset,
-            modelHash:initialModelHash
+            pq_publicKey:pq_publicKey,
+            registeredClients: 0 // Initialize the registeredClients counter to 0
         });
 
-        projectRegistrations[taskId] = projectReg;
+        project[project_id] = projectReg;
 
         // Emit the ProjectRegistered event to notify external entities
-        emit ProjectRegistered(taskId, clientAddress, block.timestamp);
+        emit ProjectRegistered(project_id, cnt_clients, serverAddress, block.timestamp, pq_publicKey);
         //updatedModels[taskId] = updatedModel;
         //emit ModelUpdated(taskId, clientAddress, initialModelHash, "");
         //tasks[taskId].completed = true;
@@ -132,7 +137,7 @@ contract PQB_FederatedLearning {
         // Create a Task object
         Task memory newTask = Task({
             taskId: Task_id,
-            serverId: msg.sender, // Server's address can be used as an identifier
+            serverId: msg.sender, // Server address can be used as an identifier
             //primaryModelId: primaryModelId,
             ipfsAddress: Ipfs_id,
             HashModel: HashModel,
@@ -158,7 +163,7 @@ contract PQB_FederatedLearning {
         // Check if the task exists
         require(tasks[taskId].taskId != 0, "Task does not exist");
 
-        // Get the client address from the sender's address
+        // Get the client address from the sender address
         address clientAddress = msg.sender;
 
         // Create an UpdatedModel object
@@ -184,7 +189,7 @@ contract PQB_FederatedLearning {
         // Ensure the task is completed before providing feedback
         //require(tasks[taskId].completed, "Task is not completed");
 
-        // Get the server ID from the owner's address
+        // Get the server ID from the owner address
         address serverId = msg.sender;
 
         // Record the feedback information
@@ -200,16 +205,16 @@ contract PQB_FederatedLearning {
         // Store feedback information in the 'feedbacks' mapping
         feedbacks[taskId] = feedback;
 
-        // Update the client's score based on the feedback
+        // Update the clients score based on the feedback
         updateClientScore(clientAddress, scoreChange);
 
         // Emit an event to notify about the provided feedback
         emit FeedbackProvided(taskId, clientAddress, serverId, block.timestamp, true, scoreChange);
     }
 
-    // Function to update the client's score based on the feedback
+    // Function to update the clients score based on the feedback
     function updateClientScore(address clientAddress, int8 scoreChange) internal {
-        // Update the client's score
+        // Update the client score
         clients[clientAddress].score += scoreChange;
 
         // Ensure the score is within a certain range (optional)
@@ -222,7 +227,7 @@ contract PQB_FederatedLearning {
         // Add your own reward/penalty mechanism based on the feedback
     }
     
-    // Function to get the client ID based on the client's address
+    // Function to get the client ID based on the client address
     //function getClientId(address clientAddress) internal view returns (uint) {
         // Implement your logic to retrieve the client ID based on the address
         // This could involve iterating through 'clients' mapping or using another lookup mechanism
