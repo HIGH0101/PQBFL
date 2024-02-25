@@ -3,7 +3,7 @@ from web3.middleware import geth_poa_middleware
 from eth_account import Account
 import ipfs_api
 import tarfile, io ,gzip
-from pqcrypto.sign  import dilithium2 #.dilithium2 import generate_keypair,sign,verify
+from pqcrypto.sign  import dilithium2 ,sphincs_sha256_128f_simple   #.dilithium2 import generate_keypair,sign,verify
 import json
 import hashlib
 import os, sys, time, ast
@@ -71,15 +71,16 @@ def hash_data(data):
     return hashed_data
 
 
-def register_project(initialDataset, initialModelHash, signature, Task_id):
+def register_project(project_id,cnt_clients,pq_PubKey):
+    pq_PubKey=pq_PubKey.hex()
     #Task_id = int(input("Enter a Task ID for registration: ")) # generate a Task identifier 
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)
 
-    if not contract.functions.isProjectTerminated(Task_id).call():
+    if not contract.functions.isProjectTerminated(project_id).call():
         nonce = web3.eth.get_transaction_count(Eth_address)
 
         #Initial_model_hash=hash_data(Initial_model)
-        transaction = contract.functions.registerProject(Task_id, initialDataset, initialModelHash, signature).build_transaction({
+        transaction = contract.functions.registerProject(project_id,cnt_clients,pq_PubKey).build_transaction({
             'from': Eth_address,
             'gas': 2000000,
             'gasPrice': web3.to_wei('50', 'gwei'),
@@ -89,17 +90,38 @@ def register_project(initialDataset, initialModelHash, signature, Task_id):
         tx_sent = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
         receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
         gas_used=receipt['gasUsed']
+        deployment_block = receipt.blockNumber
         tx_registration = receipt['transactionHash'].hex()
         print(f'''Project Registered on contract:
               Tx_hash: {tx_registration}
               Gas: {gas_used} Wei
-              Task ID: {Task_id}''')
-
+              Project ID: {project_id}
+              required client count: {cnt_clients} 
+              pq_pubKey: {pq_PubKey}''')
         print('-'*75)
-        return Task_id
+        return project_id
     else:
-        print(f"Task {Task_id} is already terminated. Please Change the Task ID")
+        print(f"Project {project_id} is already terminated. Please Change the Project ID")
         return 'fail'
+    
+def wait_for_clients(event_filter, event_queue):
+    print('waiting for clients...')
+    # Add PoA middleware for Ganache (if needed)
+    if geth_poa_middleware not in web3.middleware_onion:
+        web3.middleware_onion.inject(geth_poa_middleware, layer=0)
+
+    # Create an instance of the contract with the ABI and address
+    contract = web3.eth.contract(address=contract_address, abi=contract_abi)
+    event_filter = contract.events.ClientRegistered.create_filter(fromBlock="latest")           # Get events since the last checked block
+    
+    # Loop to listen for events
+    #print("listening for client registration...")
+    while True:
+        events = event_filter.get_new_entries()
+        if events:
+            for event in events:
+                event_queue.put(event)
+
 
 def terminate_project(Task_id):
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)
@@ -122,7 +144,6 @@ def terminate_project(Task_id):
     print('-'*75)
 
 def publish_task(Task_id, Hash_model,Hash_Model_signature, Ipfs_id):
-
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)
     nonce = web3.eth.get_transaction_count(Eth_address)
     transaction = contract.functions.publishTask(Task_id,Hash_model,Hash_Model_signature,Ipfs_id).build_transaction({
@@ -231,16 +252,21 @@ if __name__ == "__main__":
     except:
         print("An exception occurred in connecting to blockchain (Ganache)")
 
-# Load the Ethereum account
+# Load the smart contract ABI and address 
     Eth_private_key=sys.argv[1]    
-    #Eth_private_key = "0x815946924423118b4d4dddce926f54eaa7b5785908297ad78502485c29312016"  			# Replace with the client's private key
+    #Eth_private_key = "0x656e593363e2fe87db1fdf43cee17971874a2872f286b99efd6c24ae4e8612e1"  			# Replace with the client's private key
+
+    contract_address = sys.argv[2]
+    #contract_address = "0x71B1494d2084Db29c46F51b09D41B4f82C50Ef59"   # Replace with the deployed contract address
+
+    project_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
+    
+    #project_id=1
+
+# Load the Ethereum account
     account = Account.from_key(Eth_private_key)
     Eth_address = account.address
 
-# Load the smart contract ABI and address 
-    #contract_address = "0xf70aFB518461b96671D2DA9b8C8Db71993A5E8e9"   # Replace with the deployed contract address
-    contract_address = sys.argv[2]
-    Task_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
 # Get the absolute path to the parent directory of the script directory
@@ -251,27 +277,49 @@ if __name__ == "__main__":
         contract_abi = json.load(abi_file)   # Load ABI from file
     contract = web3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
 
-    QPub_key, Qpri_key = dilithium2.generate_keypair()    # Generate post-quantum signaure key pairs
-    open(main_dir + f"/server/keys/Qpri_key_{Eth_address}.txt",'wb').write(Qpri_key)
-    open(main_dir + f"/server/keys/Qpub_key_{Eth_address}.txt",'wb').write(QPub_key)
+    #pq_PubKey, pq_priKey = dilithium2.generate_keypair()    # Generate post-quantum signaure key pairs
+    pq_PubKey, pq_priKey=sphincs_sha256_128f_simple.generate_keypair()
+    open(main_dir + f"/server/keys/Qpri_key_{Eth_address}.txt",'wb').write(pq_priKey)
+    open(main_dir + f"/server/keys/Qpub_key_{Eth_address}.txt",'wb').write(pq_PubKey)
 
-    #Qpri_key=open(main_dir + f"/server/keys/pq_pri_key.txt",'rb').read()
-    #QPub_key=open(main_dir + f"/server/keys/pq_pub_key.txt",'rb').read()
-
+    #pq_priKey=open(main_dir + f"/server/keys/pq_pri_key.txt",'rb').read()
+    #pq_PubKey=open(main_dir + f"/server/keys/pq_pub_key.txt",'rb').read()
+    Task_id=1
     Initial_dataset = b'ipfs://Qm...'
     Initial_model = b'ipfs://Qm...'
-    Model_signature = dilithium2.sign(Qpri_key,Initial_model)
+    Model_signature = sphincs_sha256_128f_simple.sign(pq_priKey,Initial_model)
 
     Hash_init_model = hash_data(Initial_model)
     Hash_init_dataset = hash_data(Initial_dataset)
     Hash_Model_signature = hash_data(Model_signature)
 
     # register FL project on blockchain
+    cnt_require=2  #  requirement client count   
     
-    registeration=register_project(Hash_init_dataset, Hash_init_model, Hash_Model_signature,Task_id)
+    registeration=register_project(project_id, cnt_require, pq_PubKey)
     if registeration=='fail':
         sys.exit()  # Exit the code if the task is already terminated
-    
+
+    registration_queue = Queue()
+    block_filter =  web3.eth.filter('latest')
+    worker = Thread(target=wait_for_clients, args=(block_filter,registration_queue), daemon=True)
+    worker.start()
+    clients_dict={}
+    client_cnt=0
+    while True:
+        if not registration_queue.empty():
+            event = registration_queue.get()
+            address = event['args']['clientAddress']
+            initialScore= event['args']['initialScore']
+            project_id= event['args']['project_id']
+            Key= event['args']['pq_publicKey']
+            clients_dict[address] = {'score': initialScore, 'pq_key': Key}  
+            client_cnt+=1
+            print(f"{client_cnt}/{cnt_require} clients connected")
+        if client_cnt==cnt_require:
+            break
+    clients_info = json.loads(json.dumps(clients_dict, indent=4))
+
     Model=Initial_model
     Hash_model=Hash_init_model 
     Models=[]
@@ -315,25 +363,28 @@ if __name__ == "__main__":
                 #elif Client_eth_addr == "0x99eB6C3796aDDCa22fA7AB91Be092Ec70bF7d626":
                 #    Client_pq_pubkey = open(f"C:/Users/tester/Desktop/Post-quantum_Authentication_FL - Copy (3)/client/keys/Qpub_key_{Client_eth_addr}.txt",'rb').read()
 
-                Client_pq_pubkey = open(main_dir + f"/client/keys/Qpub_key_{Client_eth_addr}.txt",'rb').read()  # It's suppose the client's public key is received from a secure channel
+                Client_pq_pubkey = clients_info[Client_eth_addr]["pq_key"] #open(main_dir + f"/client/keys/Qpub_key_{Client_eth_addr}.txt",'rb').read()  # It's suppose the client's public key is received from a secure channel
                 
                 # verification Signature
-                assert dilithium2.verify(Client_pq_pubkey, Local_model, Client_signature), "Signature verifiicaton of model failed"
+                Client_pq_pubkey=bytes.fromhex(Client_pq_pubkey)
+                #assert dilithium2.verify(Client_pq_pubkey, Local_model, Client_signature), "Signature verifiicaton of model failed"
+                assert sphincs_sha256_128f_simple.verify(Client_pq_pubkey, Local_model, Client_signature), "Signature verifiicaton of model failed"
 
                 Res, Feedback_score = analyze_model(Local_model,Task_id)
                 if Res:
                     Models.append(Local_model)
                     feedback_TX (Task_id, Client_eth_addr, Feedback_score)
                 
-                Count_local_models=len(Models)
-                if Count_local_models==3:
+                
+                if len(Models)==1:
                     aggregate.aggregate_models(client_addrs) 
                     break
             else:
                 time.sleep(1)
         Model= open(main_dir + "/server/files/global_model.pth",'rb').read() 
         Hash_model = hash_data(Model)
-        Model_signature = dilithium2.sign(Qpri_key,Model)
+        #Model_signature = dilithium2.sign(pq_priKey,Model)
+        Model_signature =  sphincs_sha256_128f_simple.sign(pq_priKey,Model)
         Hash_Model_signature = hash_data(Model_signature) 
 
 terminate_project(Task_id)
