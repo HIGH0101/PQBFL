@@ -67,7 +67,7 @@ def aggregate_models(client_addrs):
 
     local_models = [] 
     for i in client_addrs:
-        local_model_path = main_dir+ f'/files/local_model_{i}.pth'
+        local_model_path = main_dir+ f'/files/models/local_model_{i}.pth'
         local_model = SimpleCNN(input_size, num_classes)               # Initialize a local model
         local_model.load_state_dict(torch.load(local_model_path))      # Load the state_dict from the saved model file
         local_models.append(local_model)        # Append the local model to the list
