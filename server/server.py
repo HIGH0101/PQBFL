@@ -1,9 +1,29 @@
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from eth_account import Account
-import ipfs_api
+from eth_keys import keys
+from eth_utils import decode_hex
+from eth_account.messages import encode_defunct
+from eth_account.datastructures import SignedMessage
+
+from eth_account._utils.legacy_transactions import serializable_unsigned_transaction_from_dict
+from eth_account._utils.signing import to_standard_v
+
+#import ipfs_api
 import tarfile, io ,gzip
 from pqcrypto.sign  import dilithium2 ,sphincs_sha256_128f_simple   #.dilithium2 import generate_keypair,sign,verify
+from pqcrypto.kem import kyber768 
+
+from eth_account.datastructures import SignedMessage
+
+from Crypto.Protocol.DH import key_agreement
+from Crypto.Protocol.KDF import HKDF
+from Crypto.PublicKey import ECC
+from Crypto.Hash import SHAKE128, SHA384
+from Crypto.Cipher import AES
+from Crypto.Util.number import *
+from Crypto.Signature import DSS
+
 import json
 import hashlib
 import os, sys, time, ast
@@ -12,83 +32,128 @@ import aggregate
 from threading import Thread
 from queue import Queue, Empty
 
-'''
-def wrapfiles(model_data, signature_data):
-    
-    tar_buffer = io.BytesIO() # Create an in-memory TAR archive
+
+def kdf(x):
+        return SHAKE128.new(x).read(32)
+
+
+def wrapfiles( *files):   # input sample: ('A.bin', A), ('B.enc',B)
+    tar_buffer = io.BytesIO()  # Create an in-memory TAR archive
     # Create a tarfile object
     with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
-        # Add the model data to the archive
-        model_info = tarfile.TarInfo(name='model.bin')
-        model_info.size = len(model_data)
-        tar.addfile(model_info, io.BytesIO(model_data))
-
-        # Add the signature data to the archive
-        signature_info = tarfile.TarInfo(name='signature.bin')
-        signature_info.size = len(signature_data)
-        tar.addfile(signature_info, io.BytesIO(signature_data))
-
-    tar_data = tar_buffer.getvalue() # Get the TAR archive content as bytes
-    output_file = 'wrapped_data.tar.gz'
-    # Create a gzip compressed file
-    with gzip.open(output_file, 'wb') as gzip_file:
-        gzip_file.write(tar_data)
-'''
-def wrapfiles(model_data, signature_data,ETH_address):
+        for file_name, file_data in files:
+            # Add the file to the archive
+            file_info = tarfile.TarInfo(name=file_name)
+            file_info.size = len(file_data)
+            tar.addfile(file_info, io.BytesIO(file_data))
     
-    tar_buffer = io.BytesIO() # Create an in-memory TAR archive
-    # Create a tarfile object
-    with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
-        # Add the model data to the archive
-        model_info = tarfile.TarInfo(name=f'model_{ETH_address}.pth')
-        model_info.size = len(model_data)
-        tar.addfile(model_info, io.BytesIO(model_data))
+    tar_data = tar_buffer.getvalue()  # Get the TAR archive content as bytes
 
-        # Add the signature data to the archive
-        signature_info = tarfile.TarInfo(name=f'signature_{ETH_address}.bin')
-        signature_info.size = len(signature_data)
-        tar.addfile(signature_info, io.BytesIO(signature_data))
-    tar_data = tar_buffer.getvalue() # Get the TAR archive content as bytes
-    output_file = f'wrapped_data_{ETH_address}.tar.gz'
-    # Create a gzip compressed file
-    with gzip.open(output_file, 'wb') as gzip_file:
-        gzip_file.write(tar_data)
+    return tar_data
 
+def unwrap_files(tar_data):
 
-def extract_files(file_path, file1_name, file2_name):
-    result = {}
-    with gzip.open(file_path, 'rb') as gz_file:
-        with tarfile.open(fileobj=gz_file, mode='r') as tar:
-            for member in tar.getmembers():
-                if member.name == file1_name or member.name == file2_name:
-                    content = tar.extractfile(member)
-                    result[member.name] = content.read()
-    return result
+    extracted_files = {}
+    # Create an in-memory byte stream from the tar_data
+    tar_buffer = io.BytesIO(tar_data)
 
+    with tarfile.open(fileobj=tar_buffer, mode='r') as tar:
+        # Iterate through the members of the tarfile
+        for member in tar.getmembers():
+            file = tar.extractfile(member)
+            if file is not None:
+                extracted_files[member.name] = file.read()
+
+    return extracted_files
+
+def unzip(gzip_data):
+    with gzip.GzipFile(fileobj=io.BytesIO(gzip_data)) as gz_file:
+        tar_data = gz_file.read()
+    return tar_data
 
 def hash_data(data):
     hashed_data=hashlib.sha256(data).hexdigest()
     return hashed_data
 
+def pubKey_from_tx(tx_hash):
+    tx = w3.eth.get_transaction(tx_hash)
+    v = tx['v']
+    r = int(tx['r'].hex(), 16)
+    s = int(tx['s'].hex(), 16)
 
-def register_project(project_id,cnt_clients,pq_PubKey):
-    pq_PubKey=pq_PubKey.hex()
-    #Task_id = int(input("Enter a Task ID for registration: ")) # generate a Task identifier 
-    contract = web3.eth.contract(address=contract_address, abi=contract_abi)
+    unsigned_tx = serializable_unsigned_transaction_from_dict({     # Reconstruct the unsigned transaction
+        'nonce': tx['nonce'],
+        'gasPrice': tx['gasPrice'],
+        'gas': tx['gas'],
+        'to': tx['to'],
+        'value': tx['value'],
+        'data': tx['input']
+    })
+    tx_hash = unsigned_tx.hash()    
+    standard_v = to_standard_v(v) # Convert v value to standard
+    signature = keys.Signature(vrs=(standard_v, r, s))
+    public_key = signature.recover_public_key_from_msg_hash(tx_hash)     # Recover the public key from the signature
 
+    return public_key
+
+def sign_data(msg, Eth_private_key):
+    encoded_ct = encode_defunct(msg)
+    signed_ct = w3.eth.account.sign_message(encoded_ct, private_key=Eth_private_key)
+    message_hash =signed_ct.messageHash
+    r_bytes = long_to_bytes(signed_ct.r)
+    s_bytes  = long_to_bytes(signed_ct.s)
+    v_bytes  = long_to_bytes(signed_ct.v)
+    sign_bytes = signed_ct.signature
+    signed_msg = message_hash + r_bytes + s_bytes  + v_bytes  + sign_bytes
+    return signed_msg
+
+def verify_sign(signed_data,msg,pubkey):
+    # recover signature from signature data recieved
+    msg_hash = signed_data[:32]
+    r_sign = bytes_to_long(signed_data[32:64])
+    s_sign = bytes_to_long(signed_data[64:96])
+    v_sign = bytes_to_long(signed_data[96:97])
+    sign_bytes = signed_data[97:]
+    signature = SignedMessage( messageHash=msg_hash,r=r_sign,s=s_sign,v=v_sign,signature=sign_bytes)
+    '''
+    # Signature verification  
+    key = ECC.import_key(pubسkey)
+    verifier = DSS.new(key, 'fips-186-3')
+    try:                # verify signature of client's public Keys
+        verifier.verify(msg, signature)
+    except ValueError:
+        print("The message is not authentic.")
+    '''
+
+def encrypt_data(key,msg):
+    nonce = os.urandom(8)
+    crypto = AES.new(key, AES.MODE_CTR, nonce=nonce)
+    model_ct = crypto.encrypt(msg)
+    encrypted= nonce + model_ct
+    return encrypted
+
+def decrypt_data(key,cipher):
+    nonce = cipher[:8]
+    crypto = AES.new(key, AES.MODE_CTR, nonce=nonce)
+    dec = crypto.decrypt(cipher[8:])
+    return dec
+
+def register_project(project_id,cnt_clients_req, hash_init_model, hash_keys):
+    
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
     if not contract.functions.isProjectTerminated(project_id).call():
-        nonce = web3.eth.get_transaction_count(Eth_address)
+        nonce = w3.eth.get_transaction_count(Eth_address)
 
         #Initial_model_hash=hash_data(Initial_model)
-        transaction = contract.functions.registerProject(project_id,cnt_clients,pq_PubKey).build_transaction({
+        transaction = contract.functions.registerProject(project_id,cnt_clients_req,hash_init_model,hash_keys).build_transaction({
             'from': Eth_address,
             'gas': 2000000,
-            'gasPrice': web3.to_wei('50', 'gwei'),
+            'gasPrice': w3.to_wei('50', 'gwei'),
             'nonce': nonce,
         })
-        signed_transaction = web3.eth.account.sign_transaction(transaction, Eth_private_key)
-        tx_sent = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-        receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
+        signed_transaction = w3.eth.account.sign_transaction(transaction, Eth_private_key)
+        tx_sent = w3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_sent)
         gas_used=receipt['gasUsed']
         deployment_block = receipt.blockNumber
         tx_registration = receipt['transactionHash'].hex()
@@ -96,26 +161,28 @@ def register_project(project_id,cnt_clients,pq_PubKey):
               Tx_hash: {tx_registration}
               Gas: {gas_used} Wei
               Project ID: {project_id}
-              required client count: {cnt_clients} 
-              pq_pubKey: {pq_PubKey}''')
+              required client count: {cnt_clients_req} 
+              initial model hash: {hash_init_model}
+              pubic keys hash: {hash_keys}''')
         print('-'*75)
-        return project_id
+        return project_id, tx_registration
     else:
         print(f"Project {project_id} is already terminated. Please Change the Project ID")
         return 'fail'
     
+
 def wait_for_clients(event_filter, event_queue):
+
     print('waiting for clients...')
     # Add PoA middleware for Ganache (if needed)
-    if geth_poa_middleware not in web3.middleware_onion:
-        web3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    if geth_poa_middleware not in w3.middleware_onion:
+        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
     # Create an instance of the contract with the ABI and address
-    contract = web3.eth.contract(address=contract_address, abi=contract_abi)
-    event_filter = contract.events.ClientRegistered.create_filter(fromBlock="latest")           # Get events since the last checked block
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+    event_filter = contract.events.ClientRegistered.create_filter(fromBlock="latest")          # Get events since the last checked block
     
     # Loop to listen for events
-    #print("listening for client registration...")
     while True:
         events = event_filter.get_new_entries()
         if events:
@@ -124,17 +191,17 @@ def wait_for_clients(event_filter, event_queue):
 
 
 def terminate_project(Task_id):
-    contract = web3.eth.contract(address=contract_address, abi=contract_abi)
-    nonce = web3.eth.get_transaction_count(Eth_address)
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+    nonce = w3.eth.get_transaction_count(Eth_address)
     transaction = contract.functions.finishProject(Task_id).build_transaction({
         'from': Eth_address,
         'gas': 2000000,  # Adjust the gas limit based on your contract's needs
-        'gasPrice': web3.to_wei('50', 'gwei'),
+        'gasPrice': w3.to_wei('50', 'gwei'),
         'nonce': nonce,
     })
-    signed_transaction = web3.eth.account.sign_transaction(transaction, Eth_private_key)
-    tx_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-    receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+    signed_transaction = w3.eth.account.sign_transaction(transaction, Eth_private_key)
+    tx_hash = w3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
     gas_used=receipt['gasUsed']
     tx_publish = receipt['transactionHash'].hex()
     print(f'''Task terminated:
@@ -143,39 +210,42 @@ def terminate_project(Task_id):
           Task ID: {Task_id}''')
     print('-'*75)
 
-def publish_task(Task_id, Hash_model,Hash_Model_signature, Ipfs_id):
-    contract = web3.eth.contract(address=contract_address, abi=contract_abi)
-    nonce = web3.eth.get_transaction_count(Eth_address)
-    transaction = contract.functions.publishTask(Task_id,Hash_model,Hash_Model_signature,Ipfs_id).build_transaction({
+
+def publish_task(r, Hash_model, hash_keys, Task_id, project_id, D_t):
+
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+    nonce = w3.eth.get_transaction_count(Eth_address)
+    transaction = contract.functions.publishTask(r,Hash_model, hash_keys, Task_id, project_id, D_t).build_transaction({
         'from': Eth_address,
         'gas': 2000000,
-        'gasPrice': web3.to_wei('50', 'gwei'),
+        'gasPrice': w3.to_wei('50', 'gwei'),
         'nonce': nonce,
     })
-    signed_tx = web3.eth.account.sign_transaction(transaction, Eth_private_key)
-    tx_sent = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
-    receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
+    signed_tx = w3.eth.account.sign_transaction(transaction, Eth_private_key)
+    tx_sent = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_sent)
     gas_used=receipt['gasUsed']
     tx_publish = receipt['transactionHash'].hex()
     print(f'''Task published:
           Tx_hash: {tx_publish}
           Gas: {gas_used} Wei
-          Task ID: {Task_id}
-          IPFS ID: {Ipfs_id}''')
+          Task ID: {Task_id}''')
     print('-'*75)
+
+    return tx_publish
+
 
 def listen_for_updates(event_filter, event_queue):
 
     # Add PoA middleware for Ganache (if needed)
-    if geth_poa_middleware not in web3.middleware_onion:
-        web3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    if geth_poa_middleware not in w3.middleware_onion:
+        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
     # Create an instance of the contract with the ABI and address
-    contract = web3.eth.contract(address=contract_address, abi=contract_abi)
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
     event_filter = contract.events.ModelUpdated.create_filter(fromBlock="latest")           # Get events since the last checked block
     
     # Loop to listen for events
-    #print("listening for upadates...")
     while True:
         events = event_filter.get_new_entries()
         if events:
@@ -183,35 +253,19 @@ def listen_for_updates(event_filter, event_queue):
                 event_queue.put(event)
 
 
-def fetch_model_from_Ipfs(Ipfs_id,client_address):
-    Ipfs_data = ipfs_api.http_client.cat(Ipfs_id)
-    with open(f"wrapped_data_{client_address}.tar.gz", "wb") as f:
-        f.write(Ipfs_data)
-    zipfile =f'wrapped_data_{client_address}.tar.gz' 
-    model_file=f'local_model_{client_address}.pth'
-    Signature_file=f'signature_{client_address}.bin'
-    result=extract_files(zipfile,model_file,Signature_file)
+def feedback_TX (task_id, project_id, client_address, feedback_score,T):
 
-    Model_data=result[model_file]
-    open(main_dir +'/server/files/'+model_file,'wb').write(Model_data)
-    Signature_data=result[Signature_file]
-    open(main_dir +'/server/keys/'+Signature_file,'wb').write(Signature_data)
-    return Model_data , Signature_data
-
-
-def feedback_TX (task_id, client_address, feedback_score):
-
-    contract = web3.eth.contract(address = contract_address, abi=contract_abi)
-    nonce = web3.eth.get_transaction_count(Eth_address)
-    transaction = contract.functions.provideFeedback(task_id, client_address, feedback_score).build_transaction({
+    contract = w3.eth.contract(address = contract_address, abi=contract_abi)
+    nonce = w3.eth.get_transaction_count(Eth_address)
+    transaction = contract.functions.provideFeedback(task_id, project_id, client_address, feedback_score,T).build_transaction({
         'from': Eth_address,
         'gas': 2000000,
-        'gasPrice': web3.to_wei('50', 'gwei'),
+        'gasPrice': w3.to_wei('50', 'gwei'),
         'nonce': nonce,
     })
-    signed_transaction = web3.eth.account.sign_transaction(transaction, Eth_private_key)
-    tx_sent = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-    receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
+    signed_transaction = w3.eth.account.sign_transaction(transaction, Eth_private_key)
+    tx_sent = w3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_sent)
     gas_used=receipt['gasUsed']
     tx_feedback = receipt['transactionHash'].hex()
     print(f'''Feedback provided:
@@ -221,24 +275,14 @@ def feedback_TX (task_id, client_address, feedback_score):
           Task ID: {Task_id}
           Score: {Task_id}''')
     print('-'*75)
+    return tx_feedback
 
 
-def upload_model_to_Ipfs(Model,Signature,ETH_address):
-    
-    wrapfiles(Model, Signature,ETH_address) # Wrap the model and signature into a zip file  
-    print('Model files are uploaded to IPFS\n')
-    result = ipfs_api.http_client.add(f"wrapped_data_{ETH_address}.tar.gz", recursive=True)   # Upload the zip file to IPFS
-    start_index = str(result).find('{')
-    end_index = str(result).rfind('}')
-    content_inside_braces = str(result)[start_index:end_index + 1]
-    result_dict = ast.literal_eval(content_inside_braces)
-    return result_dict['Hash']
-
-
-def analyze_model (Local_model,Task_id):
+def analyze_model (Local_model,Task_id,project_id_update):
     res=True
     Feedback_score=1
     return res, Feedback_score
+
 
 
 
@@ -247,145 +291,218 @@ if __name__ == "__main__":
 # Connect to the local Ganache blockchain
     try:
         ganache_url = "http://127.0.0.1:7545"  
-        web3 = Web3(Web3.HTTPProvider(ganache_url))
+        w3 = Web3(Web3.HTTPProvider(ganache_url))
         print("Server connected to blockchain (Ganache) successfully\n")
     except:
         print("An exception occurred in connecting to blockchain (Ganache)")
 
-# Load the smart contract ABI and address 
-    Eth_private_key=sys.argv[1]    
-    #Eth_private_key = "0x656e593363e2fe87db1fdf43cee17971874a2872f286b99efd6c24ae4e8612e1"  			# Replace with the client's private key
 
-    contract_address = sys.argv[2]
-    #contract_address = "0x71B1494d2084Db29c46F51b09D41B4f82C50Ef59"   # Replace with the deployed contract address
+    #Eth_private_key=sys.argv[1]    
+    Eth_private_key = "0xbcb2dc287716a6a618ac3f2826fd3d764fe58e06972c33bd6fbea6471b0bbe32"  			# Replace with the client's private key
+    #contract_address = sys.argv[2]
+    contract_address = "0xfb9107Fe1e2318E3A292d3D21283A866273aa750"   # Replace with the deployed contract address
+    #project_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
+    project_id=2
 
-    project_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
-    
-    #project_id=1
-
-# Load the Ethereum account
     account = Account.from_key(Eth_private_key)
-    Eth_address = account.address
-
+    Eth_address = account.address   # Load the Ethereum account
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-# Get the absolute path to the parent directory of the script directory
-    main_dir = os.path.dirname(script_dir)
-
+    main_dir = os.path.dirname(script_dir)  # Get the path to the parent directory of the script
 
     with open(main_dir+"/contract/contract-abi.json", "r") as abi_file:
-        contract_abi = json.load(abi_file)   # Load ABI from file
-    contract = web3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
-
-    #pq_PubKey, pq_priKey = dilithium2.generate_keypair()    # Generate post-quantum signaure key pairs
-    pq_PubKey, pq_priKey=sphincs_sha256_128f_simple.generate_keypair()
-    open(main_dir + f"/server/keys/Qpri_key_{Eth_address}.txt",'wb').write(pq_priKey)
-    open(main_dir + f"/server/keys/Qpub_key_{Eth_address}.txt",'wb').write(pq_PubKey)
-
-    #pq_priKey=open(main_dir + f"/server/keys/pq_pri_key.txt",'rb').read()
-    #pq_PubKey=open(main_dir + f"/server/keys/pq_pub_key.txt",'rb').read()
-    Task_id=1
-    Initial_dataset = b'ipfs://Qm...'
-    Initial_model = b'ipfs://Qm...'
-    Model_signature = sphincs_sha256_128f_simple.sign(pq_priKey,Initial_model)
-
-    Hash_init_model = hash_data(Initial_model)
-    Hash_init_dataset = hash_data(Initial_dataset)
-    Hash_Model_signature = hash_data(Model_signature)
-
-    # register FL project on blockchain
-    cnt_require=2  #  requirement client count   
+        contract_abi = json.load(abi_file)     # Load ABI from file
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
     
-    registeration=register_project(project_id, cnt_require, pq_PubKey)
+
+    esk_b = ECC.generate(curve='p256')      # Server's (Bob) private key ECDH 
+    epk_b = bytes(esk_b.public_key().export_key(format='PEM'), 'utf-8')
+    kpk_b,ksk_b=kyber768.generate_keypair()          # Server's (Bob) KEM key pair
+    hash_pubkeys = hash_data(kpk_b+epk_b)    # hash of concatinate keys
+    
+    #send (save:) server public keys
+    open(main_dir + f"/server/keys/DH_PubKey_{Eth_address}.txt",'wb').write(epk_b)    
+    open(main_dir + f"/server/keys/Kyber_PubKey_{Eth_address}.txt",'wb').write(kpk_b)
+
+    Task_id=5
+    Init_model = b'ipfs://Qm...'
+    Hash_model = hash_data(Init_model)
+    client_req=1    # client requirement count
+    
+    registeration, Tx_r =register_project(project_id, client_req, Hash_model, hash_pubkeys)
     if registeration=='fail':
         sys.exit()  # Exit the code if the task is already terminated
 
     registration_queue = Queue()
-    block_filter =  web3.eth.filter('latest')
+    block_filter =  w3.eth.filter('latest')
     worker = Thread(target=wait_for_clients, args=(block_filter,registration_queue), daemon=True)
     worker.start()
     clients_dict={}
-    client_cnt=0
-    while True:
+    registered_cnt=0
+
+    while True:         # Wait for enough number participants
         if not registration_queue.empty():
-            event = registration_queue.get()
+            # client information
+            event = registration_queue.get() 
             address = event['args']['clientAddress']
+            Tx_r = event['transactionHash'].hex()
             initialScore= event['args']['initialScore']
             project_id= event['args']['project_id']
-            Key= event['args']['pq_publicKey']
-            clients_dict[address] = {'score': initialScore, 'pq_key': Key}  
-            client_cnt+=1
-            print(f"{client_cnt}/{cnt_require} clients connected")
-        if client_cnt==cnt_require:
+            h_Key= event['args']['hash_PubKeys']
+            clients_dict[address] = {'score': initialScore, 'hash_epk': h_Key, 'registeration Tx': Tx_r}   # For each client 
+
+            epk_a_pem=open(main_dir + f"/client/keys/DH_PubKey_{address}.txt",'rb').read()  
+            ct=open(main_dir + f"/client/files/kyber_ct_{address}.txt",'rb').read()    
+            assert hash_data(epk_a_pem) == clients_dict[address]['hash_epk'] , "on-chain and off-chain pub keys are not match :(" 
+
+            # we have to verify recieved ct and epk_a from clients  
+            #verify_sign(signature,epk_and_ct, pubKey_from_tx(Tx_r))
+            
+            epk_a = ECC.import_key(epk_a_pem)
+            ss_e = key_agreement(eph_priv=esk_b, eph_pub=epk_a, kdf=kdf)    # ECDH shared secret 
+            ss_k = kyber768.decrypt(ksk_b, ct)
+            SS = ss_k + ss_e        # (ss_k||ss_e) construnct general shared secret 
+    
+            salt_a=b'\0'*32    # asymmetric salt
+            salt_s = b'\0'*32    # symmetric salt
+            Root_key= HKDF(SS, 32, salt_a, SHA384, 1)     #  RK_1 <-- SS + Salt_a  
+            chain_key, Model_key = HKDF(Root_key, 32, salt_s, SHA384, 2)
+
+            clients_dict[address]['Model key'] = Model_key.hex()
+            clients_dict[address]['Chain key'] = chain_key.hex()
+
+            registered_cnt+=1
+            print(f"{registered_cnt}/{client_req} clients connected")
+        if registered_cnt==client_req:
             break
     clients_info = json.loads(json.dumps(clients_dict, indent=4))
 
-    Model=Initial_model
-    Hash_model=Hash_init_model 
+    Global_Model=Init_model
     Models=[]
-    round=1
-    for i in range(round):  # More rounds may be needed later
-        
-        Uploaded_ipfs_id = upload_model_to_Ipfs(Model, Model_signature,Eth_address)
-        publish_task(Task_id, Hash_model,Hash_Model_signature,Uploaded_ipfs_id)      # publishing in rounds
-        print(f"Round {i+1}: Listening for local models...")
-        
+    task_info= {}
+    round=3
+    ratchet_renge=2
+
+    for r in range(1,round):    # More rounds may be needed later
+
+        task_info['Round number'] = r
+        task_info['Model hash'] = Hash_model
+        task_info['Project id'] = project_id
+        task_info['Task id'] = Task_id
+        task_info['Deadline Task'] = int(time.time()) + 100000
+
+
+        # assymmetric ratcheting condition
+        hash_pubkeys='None'
+        if r%ratchet_renge==0:
+            esk_b = ECC.generate(curve='p256')      # Server's (Bob) private key ECDH 
+            epk_b = bytes(esk_b.public_key().export_key(format='PEM'), 'utf-8')
+            kpk_b,ksk_b=kyber768.generate_keypair()          # Server's (Bob) KEM key pair
+            hash_pubkeys = hash_data(kpk_b+epk_b)
+            open(main_dir + f"/server/keys/DH_PubKey_{Eth_address}.txt",'wb').write(epk_b)    
+            open(main_dir + f"/server/keys/Kyber_PubKey_{Eth_address}.txt",'wb').write(kpk_b)
+
+        Tx_p = publish_task(r, Hash_model, hash_pubkeys, Task_id, project_id, task_info['Deadline Task'])      # publishing in rounds
+        task_info['Publish Tx'] = Tx_p
+        json_task_info = json.dumps(task_info, indent=4)
+        wraped_model_info=wrapfiles(('task_info.json',json_task_info.encode()), ('Model.pth',Global_Model))  # Wrap  Model and info files 
+
+        for addr in clients_dict:  # encrypt and sign model for each client 
+
+            Model_key=bytes.fromhex(clients_dict[addr]['Model key'])
+            model_ct=encrypt_data(Model_key, wraped_model_info)
+            signed_ct=sign_data(model_ct, Eth_private_key)
+            # save (send:) wrapped files in zip 
+            wraped_msg=wrapfiles(('signature.bin',signed_ct), ('global_model.enc',model_ct))
+            with gzip.open(main_dir + f"/server/files/wrapped_data_{addr}.tar.gz", 'wb') as gzip_file:
+               gzip_file.write(wraped_msg)
+   
+        print(f"Round {r}: Listening for local models...")        
         event_queue = Queue()
-        block_filter =  web3 .eth.filter('latest')
+        block_filter =  w3 .eth.filter('latest')
         worker = Thread(target=listen_for_updates, args=(block_filter,event_queue), daemon=True)
         worker.start()
         client_addrs=[]
+        update_dict={}
+        cnt_models=0
+        T= False
         while True:
             if not event_queue.empty():
                 event = event_queue.get()
-                Task_id = event['args']['taskId']
+                r_update = event['args']['round']
+                Task_id_update = event['args']['taskId']
+                tx_u = event['transactionHash'].hex()
+                project_id_update= event['args']['project_id']
                 Client_eth_addr = event['args']['clientAddress']
-                Hash_model = event['args']['modelHash']
-                Ipfs_id = event['args']['ipfsId']
-                print(f'''Local model update received:
-                Task ID: {Task_id}
-                Client address: {Client_eth_addr}
-                IPFS ID: {Ipfs_id}''')
+                Hash_local_model = event['args']['HashModel']
+                Hash_ct_epk_a = event['args']['hash_ct_epk']
+
+                if r_update==r and Task_id_update==Task_id and project_id_update==project_id:
+                    update_dict[Client_eth_addr]= {'round': r_update, 'Task id':Task_id_update , 
+                                                   'Tx_u': tx_u, 'Project id':project_id_update, 
+                                                   'Local model hash':Hash_local_model} 
+                else:
+                    print('information of model is not related to this round or project')  
+
+                print(f'Local model update received:')
+                print(json.dumps(update_dict[Client_eth_addr], indent=4))
                 print('-'*75)
                 client_addrs.append(Client_eth_addr)
-                Local_model, Client_signature = fetch_model_from_Ipfs(Ipfs_id,Client_eth_addr)
 
-            # Verify the downloaded model hash with the hash in the transaction    
-                assert Hash_model==hash_data(Local_model), "verification failed for Q1" # این قسمت شاید اضافه باشه چون صحت مدل با امضا هم میشه فهمید
-
-                # load client public key
-                #if Client_eth_addr == '0x3d6b25273dD4C310963cb6beD487Bdc186B4e80D': 
-                #    Client_pq_pubkey = open(f"C:/Users/tester/Desktop/Post-quantum_Authentication_FL - Copy/client/keys/Qpub_key_{Client_eth_addr}.txt",'rb').read()
+                #load model info (recieved:)
+                Recieved_msg=open(main_dir + f"/server/files/wrapped_data_{Client_eth_addr}.tar.gz",'rb').read()  
+                unwrapped_msg=unwrap_files(unzip(Recieved_msg))
+                signature=unwrapped_msg['signature.bin']
+                local_model_ct=unwrapped_msg['Local_model.enc']
                 
-                #elif Client_eth_addr == "0xF0509A1635Fd3ce79e3F9322Ff080D75052954B4":
-                #    Client_pq_pubkey = open(f"C:/Users/tester/Desktop/Post-quantum_Authentication_FL - Copy (2)/client/keys/Qpub_key_{Client_eth_addr}.txt",'rb').read()
-                
-                #elif Client_eth_addr == "0x99eB6C3796aDDCa22fA7AB91Be092Ec70bF7d626":
-                #    Client_pq_pubkey = open(f"C:/Users/tester/Desktop/Post-quantum_Authentication_FL - Copy (3)/client/keys/Qpub_key_{Client_eth_addr}.txt",'rb').read()
+                verify_sign(signature, local_model_ct, pubKey_from_tx(tx_u))
 
-                Client_pq_pubkey = clients_info[Client_eth_addr]["pq_key"] #open(main_dir + f"/client/keys/Qpub_key_{Client_eth_addr}.txt",'rb').read()  # It's suppose the client's public key is received from a secure channel
+                dec_wrapfile=decrypt_data(Model_key,local_model_ct)
+  
+                unwraped=unwrap_files(dec_wrapfile)
+                Local_model_info =unwraped['Local_model_info.json']
+                Local_model=unwraped[f'local_model_{Client_eth_addr}.pth']
+                assert Hash_local_model==hash_data(Local_model), f"Hash recieved on-chain and off-chain local model {Client_eth_addr} are not match :("    # این قسمت شاید اضافه باشه چون صحت مدل با امضا هم میشه فهمید
                 
-                # verification Signature
-                Client_pq_pubkey=bytes.fromhex(Client_pq_pubkey)
-                #assert dilithium2.verify(Client_pq_pubkey, Local_model, Client_signature), "Signature verifiicaton of model failed"
-                assert sphincs_sha256_128f_simple.verify(Client_pq_pubkey, Local_model, Client_signature), "Signature verifiicaton of model failed"
+                if Hash_ct_epk_a!='None':  # assymmetric ratcheting
+                    
+                    ct=open(main_dir + f"/client/files/kyber_ct_{address}.txt",'rb').read() 
+                    epk_a_pem=open(main_dir + f"/client/keys/DH_PubKey_{address}.txt",'rb').read()  
 
-                Res, Feedback_score = analyze_model(Local_model,Task_id)
+                    assert hash_data(ct + epk_a_pem) == Hash_ct_epk_a  , f"on-chain and off-chain hash(ct||epk) of {Client_eth_addr} are not match :(" 
+                    epk_a = ECC.import_key(epk_a_pem)
+                    ss_e = key_agreement(eph_priv=esk_b, eph_pub=epk_a, kdf=kdf)    # ECDH shared secret 
+                    ss_k = kyber768.decrypt(ksk_b, ct)
+                    SS = ss_k + ss_e              # (ss_k||ss_e) construnct general shared secret  
+                    Root_key= HKDF(SS, 32, salt_a, SHA384, 1)     #  RK_1 <-- SS + Salt_a  
+                    
+                Res, Feedback_score = analyze_model(Local_model,Task_id_update,project_id_update)        
                 if Res:
-                    Models.append(Local_model)
-                    feedback_TX (Task_id, Client_eth_addr, Feedback_score)
+                    cnt_models+=1
+                    #Models.append(Local_model)
+                    open(main_dir + f"/server/files/models/local_model_{Client_eth_addr}.pth",'wb').write(Local_model)  
+                    # terminate condition
+                    #if ord(os.urandom(1))& 1==1:  # random condition, this is for test
+                    #    T=True
+                    Tx_f=feedback_TX (Task_id, project_id, Client_eth_addr, Feedback_score, T)
                 
-                
-                if len(Models)==1:
+                if cnt_models==registered_cnt:
                     aggregate.aggregate_models(client_addrs) 
                     break
             else:
                 time.sleep(1)
-        Model= open(main_dir + "/server/files/global_model.pth",'rb').read() 
-        Hash_model = hash_data(Model)
-        #Model_signature = dilithium2.sign(pq_priKey,Model)
-        Model_signature =  sphincs_sha256_128f_simple.sign(pq_priKey,Model)
-        Hash_Model_signature = hash_data(Model_signature) 
 
-terminate_project(Task_id)
+        for addr in clients_dict:  # ratcheting symmetric model key  for each client 
+            chain_key=bytes.fromhex(clients_dict[address]['Chain key'])  # get previous chain key
+
+            if Hash_ct_epk_a=='None':
+                Root_key=chain_key
+            chain_key, Model_key = HKDF(Root_key, 32, salt_s, SHA384, 2)
+            #chain_key, Model_key = HKDF(chain_key, 32, salt_s, SHA384, 2)
+            clients_dict[address]['Model key'] = Model_key.hex()
+            clients_dict[address]['Chain key'] = chain_key.hex()  # update keys of dict of clients
+        salt_s=(bytes_to_long(salt_s)+1).to_bytes(32, byteorder='big')        #  salt_s  increment 
+        salt_a=(bytes_to_long(salt_a)+1).to_bytes(32, byteorder='big')        #  salt_a  increment            
+
+terminate_project(Task_id) # transaction termination for recording on blockchain
 
