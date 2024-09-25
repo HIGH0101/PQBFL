@@ -14,7 +14,7 @@ import tarfile, io ,gzip
 from pqcrypto.sign  import dilithium2 ,sphincs_sha256_128f_simple   #.dilithium2 import generate_keypair,sign,verify
 from pqcrypto.kem import kyber768 
 
-from eth_account.datastructures import SignedMessage
+import socket, pickle
 
 from Crypto.Protocol.DH import key_agreement
 from Crypto.Protocol.KDF import HKDF
@@ -29,7 +29,7 @@ import hashlib
 import os, sys, time, ast
 import tempfile
 import aggregate
-from threading import Thread
+from threading import *
 from queue import Queue, Empty
 
 
@@ -48,22 +48,18 @@ def wrapfiles( *files):   # input sample: ('A.bin', A), ('B.enc',B)
             tar.addfile(file_info, io.BytesIO(file_data))
     
     tar_data = tar_buffer.getvalue()  # Get the TAR archive content as bytes
-
     return tar_data
 
 def unwrap_files(tar_data):
-
     extracted_files = {}
     # Create an in-memory byte stream from the tar_data
     tar_buffer = io.BytesIO(tar_data)
-
     with tarfile.open(fileobj=tar_buffer, mode='r') as tar:
         # Iterate through the members of the tarfile
         for member in tar.getmembers():
             file = tar.extractfile(member)
             if file is not None:
                 extracted_files[member.name] = file.read()
-
     return extracted_files
 
 def unzip(gzip_data):
@@ -80,7 +76,6 @@ def pubKey_from_tx(tx_hash):
     v = tx['v']
     r = int(tx['r'].hex(), 16)
     s = int(tx['s'].hex(), 16)
-
     unsigned_tx = serializable_unsigned_transaction_from_dict({     # Reconstruct the unsigned transaction
         'nonce': tx['nonce'],
         'gasPrice': tx['gasPrice'],
@@ -93,8 +88,8 @@ def pubKey_from_tx(tx_hash):
     standard_v = to_standard_v(v) # Convert v value to standard
     signature = keys.Signature(vrs=(standard_v, r, s))
     public_key = signature.recover_public_key_from_msg_hash(tx_hash)     # Recover the public key from the signature
-
     return public_key
+
 
 def sign_data(msg, Eth_private_key):
     encoded_ct = encode_defunct(msg)
@@ -138,8 +133,8 @@ def decrypt_data(key,cipher):
     dec = crypto.decrypt(cipher[8:])
     return dec
 
+
 def register_project(project_id,cnt_clients_req, hash_init_model, hash_keys):
-    
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)
     if not contract.functions.isProjectTerminated(project_id).call():
         nonce = w3.eth.get_transaction_count(Eth_address)
@@ -165,10 +160,10 @@ def register_project(project_id,cnt_clients_req, hash_init_model, hash_keys):
               initial model hash: {hash_init_model}
               pubic keys hash: {hash_keys}''')
         print('-'*75)
-        return project_id, tx_registration
+        return tx_registration
     else:
-        print(f"Project {project_id} is already terminated. Please Change the Project ID")
-        return 'fail'
+        print(f"Project {project_id} is already terminated. Please Change the Project ID. Exit...")
+        sys.exit()  # Exit the code if the task is already terminated
     
 
 def wait_for_clients(event_filter, event_queue):
@@ -189,6 +184,26 @@ def wait_for_clients(event_filter, event_queue):
             for event in events:
                 event_queue.put(event)
 
+# Function to send data to the client
+def send_offchain(client_socket, message):
+    try:
+        client_socket.sendall(message)
+        ack = client_socket.recv(1024)
+        return ack.decode('utf-8')
+    except ConnectionResetError:
+        print("Failed to send data. Connection closed.")
+        return None
+
+# Function to receive data from the client
+def receive_offchain(client_socket):
+    try:
+        data = client_socket.recv(2048)
+        if not data:
+            return None
+        return data
+    except ConnectionResetError:
+        print("Failed to receive data. Connection closed.")
+        return None
 
 def terminate_project(Task_id):
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)
@@ -212,7 +227,6 @@ def terminate_project(Task_id):
 
 
 def publish_task(r, Hash_model, hash_keys, Task_id, project_id, D_t):
-
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)
     nonce = w3.eth.get_transaction_count(Eth_address)
     transaction = contract.functions.publishTask(r,Hash_model, hash_keys, Task_id, project_id, D_t).build_transaction({
@@ -231,12 +245,10 @@ def publish_task(r, Hash_model, hash_keys, Task_id, project_id, D_t):
           Gas: {gas_used} Wei
           Task ID: {Task_id}''')
     print('-'*75)
-
     return tx_publish
 
 
 def listen_for_updates(event_filter, event_queue):
-
     # Add PoA middleware for Ganache (if needed)
     if geth_poa_middleware not in w3.middleware_onion:
         w3.middleware_onion.inject(geth_poa_middleware, layer=0)
@@ -253,11 +265,11 @@ def listen_for_updates(event_filter, event_queue):
                 event_queue.put(event)
 
 
-def feedback_TX (task_id, project_id, client_address, feedback_score,T):
+def feedback_TX (r, task_id, project_id, client_address, feedback_score,T):
 
     contract = w3.eth.contract(address = contract_address, abi=contract_abi)
     nonce = w3.eth.get_transaction_count(Eth_address)
-    transaction = contract.functions.provideFeedback(task_id, project_id, client_address, feedback_score,T).build_transaction({
+    transaction = contract.functions.provideFeedback(r, task_id, project_id, client_address, feedback_score,T).build_transaction({
         'from': Eth_address,
         'gas': 2000000,
         'gasPrice': w3.to_wei('50', 'gwei'),
@@ -272,8 +284,8 @@ def feedback_TX (task_id, project_id, client_address, feedback_score,T):
           Client address:{client_address}
           Tx_hash: {tx_feedback}
           Gas: {gas_used} Wei
-          Task ID: {Task_id}
-          Score: {Task_id}''')
+          Task ID: {task_id}
+          Score: {task_id}''')
     print('-'*75)
     return tx_feedback
 
@@ -283,26 +295,44 @@ def analyze_model (Local_model,Task_id,project_id_update):
     Feedback_score=1
     return res, Feedback_score
 
+def handle_client(client_socket, client_address):
+    try:
+        print(f"Handling connection from {client_address}")
+        client_socket.sendall(b"Welcome to the server!")
+        data = client_socket.recv(4096)
+        print(f"Received data from {client_address}: {data}")
+    except Exception as e:
+        print(f"Error handling client {client_address}: {e}")
+    finally:
+        client_socket.close()
 
 
 
 if __name__ == "__main__":
 
-# Connect to the local Ganache blockchain
-    try:
-        ganache_url = "http://127.0.0.1:7545"  
-        w3 = Web3(Web3.HTTPProvider(ganache_url))
-        print("Server connected to blockchain (Ganache) successfully\n")
-    except:
-        print("An exception occurred in connecting to blockchain (Ganache)")
+    try:  # Connect to the local Ganache blockchain
+        onchain_addr = "http://127.0.0.1:7545"   # (on-chain) address anache_url
+        w3 = Web3(Web3.HTTPProvider(onchain_addr))
+
+        offcahin_addr = ('localhost', 65432)          # server (off-chain) address
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.bind(offcahin_addr)
+        server_socket.listen()
+        #print("Server connected to blockchain (Ganache) successfully\n")
+    except Exception as e:
+        print("An exception occurred in connecting to blockchain (Ganache) or offchain:", e)
+        exit()
+    
+    #received_models = []
+    #model_lock = Lock()  # treading control
 
 
     #Eth_private_key=sys.argv[1]    
-    Eth_private_key = "0xbcb2dc287716a6a618ac3f2826fd3d764fe58e06972c33bd6fbea6471b0bbe32"  			# Replace with the client's private key
+    Eth_private_key = "0x64a71b45a52c6c56d24ffc0776364522ab4da0350567867e0be46573cbe694af"  			# Replace with the client's private key
     #contract_address = sys.argv[2]
-    contract_address = "0xfb9107Fe1e2318E3A292d3D21283A866273aa750"   # Replace with the deployed contract address
+    contract_address = "0xe40D06850e5A47BF0b535d0b3366791C14a5Dc30"   # Replace with the deployed contract address
     #project_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
-    project_id=2
+    project_id=4
 
     account = Account.from_key(Eth_private_key)
     Eth_address = account.address   # Load the Ethereum account
@@ -314,24 +344,23 @@ if __name__ == "__main__":
         contract_abi = json.load(abi_file)     # Load ABI from file
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
     
-
+# generate and wrap the public keys
     esk_b = ECC.generate(curve='p256')      # Server's (Bob) private key ECDH 
     epk_b = bytes(esk_b.public_key().export_key(format='PEM'), 'utf-8')
     kpk_b,ksk_b=kyber768.generate_keypair()          # Server's (Bob) KEM key pair
     hash_pubkeys = hash_data(kpk_b+epk_b)    # hash of concatinate keys
-    
-    #send (save:) server public keys
-    open(main_dir + f"/server/keys/DH_PubKey_{Eth_address}.txt",'wb').write(epk_b)    
-    open(main_dir + f"/server/keys/Kyber_PubKey_{Eth_address}.txt",'wb').write(kpk_b)
+    # (save:) server public keys
+    #open(main_dir + f"/server/keys/DH_PubKey_{Eth_address}.txt",'wb').write(epk_b)    
+    #open(main_dir + f"/server/keys/Kyber_PubKey_{Eth_address}.txt",'wb').write(kpk_b)
+    msg_keys={}
+    msg_keys['epk_b_pem']=epk_b.hex()
+    msg_keys['kpk_b']=kpk_b.hex()
+    msg_keys_json = json.dumps(msg_keys)
 
-    Task_id=5
     Init_model = b'ipfs://Qm...'
     Hash_model = hash_data(Init_model)
-    client_req=1    # client requirement count
-    
-    registeration, Tx_r =register_project(project_id, client_req, Hash_model, hash_pubkeys)
-    if registeration=='fail':
-        sys.exit()  # Exit the code if the task is already terminated
+    client_req=2    # client requirement count 
+    Tx_r =register_project(project_id, client_req, Hash_model, hash_pubkeys)
 
     registration_queue = Queue()
     block_filter =  w3.eth.filter('latest')
@@ -340,9 +369,9 @@ if __name__ == "__main__":
     clients_dict={}
     registered_cnt=0
 
-    while True:         # Wait for enough number participants
-        if not registration_queue.empty():
-            # client information
+# Wait for enough number participants and get their information .
+    while True:         
+        if not registration_queue.empty():  # onchain registration of clients
             event = registration_queue.get() 
             address = event['args']['clientAddress']
             Tx_r = event['transactionHash'].hex()
@@ -350,14 +379,40 @@ if __name__ == "__main__":
             project_id= event['args']['project_id']
             h_Key= event['args']['hash_PubKeys']
             clients_dict[address] = {'score': initialScore, 'hash_epk': h_Key, 'registeration Tx': Tx_r}   # For each client 
+            
+            # Accept a client connection
+            client_socket, client_address = server_socket.accept()
+            print(f"New connection from {client_address}")
 
-            epk_a_pem=open(main_dir + f"/client/keys/DH_PubKey_{address}.txt",'rb').read()  
-            ct=open(main_dir + f"/client/files/kyber_ct_{address}.txt",'rb').read()    
-            assert hash_data(epk_a_pem) == clients_dict[address]['hash_epk'] , "on-chain and off-chain pub keys are not match :(" 
+            # Send epk_b and kpk_b to client via off-chain
+            recv_msg = client_socket.recv(4096).decode('utf-8')
+            #message = receive_offchain(client_socket)
+            if recv_msg == "pubkeys please":
+                # Send epk_b and kpk_b to client via off-chain
+                #pubkeys_message = epk_b + kpk_b
+                client_socket.sendall(msg_keys_json.encode('utf-8'))
+                print(f"Keys sent to client {client_address}")
+                data = client_socket.recv(4096)
+
+            # Receive epk_a_pem and ct from client via off-chain
+            #data = receive_offchain(client_socket)
+            if data is None:
+                print(f"Failed to receive data from client {address}")
+                client_socket.close()
+                continue
+
+            # Process the received data (assuming it's JSON encoded for simplicity)
+            received_data = json.loads(data.decode('utf-8'))
+            epk_a_pem = bytes.fromhex(received_data['epk_a_pem'])
+            ct = bytes.fromhex(received_data['ciphertext']) 
+
+            #epk_a_pem=open(main_dir + f"/client/keys/DH_PubKey_{address}.txt",'rb').read()  
+            #ct=open(main_dir + f"/client/files/kyber_ct_{address}.txt",'rb').read()    
+            #assert hash_data(epk_a_pem) == clients_dict[address]['hash_epk'] , "on-chain and off-chain pub keys are not match :(" 
 
             # we have to verify recieved ct and epk_a from clients  
             #verify_sign(signature,epk_and_ct, pubKey_from_tx(Tx_r))
-            
+
             epk_a = ECC.import_key(epk_a_pem)
             ss_e = key_agreement(eph_priv=esk_b, eph_pub=epk_a, kdf=kdf)    # ECDH shared secret 
             ss_k = kyber768.decrypt(ksk_b, ct)
@@ -375,13 +430,22 @@ if __name__ == "__main__":
             print(f"{registered_cnt}/{client_req} clients connected")
         if registered_cnt==client_req:
             break
-    clients_info = json.loads(json.dumps(clients_dict, indent=4))
+        
 
+    #while True:
+    # Wait for a connection
+    #    connection, client_address = server_socket.accept()
+    # Create a new thread to handle the client
+        #client_thread = Thread(target=handle_client, args=(connection, client_address))
+        #client_thread.start()
+
+    clients_info = json.loads(json.dumps(clients_dict, indent=4))
     Global_Model=Init_model
     Models=[]
     task_info= {}
-    round=3
-    ratchet_renge=2
+    round=8
+    Task_id=3
+    ratchet_renge=3
 
     for r in range(1,round):    # More rounds may be needed later
 
@@ -390,8 +454,8 @@ if __name__ == "__main__":
         task_info['Project id'] = project_id
         task_info['Task id'] = Task_id
         task_info['Deadline Task'] = int(time.time()) + 100000
-
-
+        
+        # print('r:',r,' K: ',Model_key.hex(),' RK: ',Root_key.hex())
         # assymmetric ratcheting condition
         hash_pubkeys='None'
         if r%ratchet_renge==0:
@@ -399,21 +463,40 @@ if __name__ == "__main__":
             epk_b = bytes(esk_b.public_key().export_key(format='PEM'), 'utf-8')
             kpk_b,ksk_b=kyber768.generate_keypair()          # Server's (Bob) KEM key pair
             hash_pubkeys = hash_data(kpk_b+epk_b)
-            open(main_dir + f"/server/keys/DH_PubKey_{Eth_address}.txt",'wb').write(epk_b)    
-            open(main_dir + f"/server/keys/Kyber_PubKey_{Eth_address}.txt",'wb').write(kpk_b)
+            msg_keys['epk_b_pem']=epk_b.hex()
+            msg_keys['kpk_b']=kpk_b.hex()
+            msg_keys_json = json.dumps(msg_keys)
+            Tx_p = publish_task(r, Hash_model, hash_pubkeys, Task_id, project_id, task_info['Deadline Task'])      # publishing in rounds
+            task_info['Publish Tx'] = Tx_p
+            #open(main_dir + f"/server/keys/DH_PubKey_{Eth_address}.txt",'wb').write(epk_b)    
+            #open(main_dir + f"/server/keys/Kyber_PubKey_{Eth_address}.txt",'wb').write(kpk_b)
+                    # Accept a client connection
+            #client_socket, client_address = server_socket.accept()
+            #print(f"New connection from {client_address}")
+            recv_msg = client_socket.recv(4096).decode('utf-8')
+            if recv_msg == "pubkeys please" and r%ratchet_renge==0:
+                client_socket.sendall(msg_keys_json.encode('utf-8'))
+                print(f"Keys sent to client {client_address}")
+        else: 
+            Tx_p = publish_task(r, Hash_model, hash_pubkeys, Task_id, project_id, task_info['Deadline Task'])      # publishing in rounds
+            task_info['Publish Tx'] = Tx_p
 
-        Tx_p = publish_task(r, Hash_model, hash_pubkeys, Task_id, project_id, task_info['Deadline Task'])      # publishing in rounds
-        task_info['Publish Tx'] = Tx_p
+
         json_task_info = json.dumps(task_info, indent=4)
         wraped_model_info=wrapfiles(('task_info.json',json_task_info.encode()), ('Model.pth',Global_Model))  # Wrap  Model and info files 
-
         for addr in clients_dict:  # encrypt and sign model for each client 
-
-            Model_key=bytes.fromhex(clients_dict[addr]['Model key'])
-            model_ct=encrypt_data(Model_key, wraped_model_info)
+            Client_Model_key=bytes.fromhex(clients_dict[addr]['Model key'])
+            model_ct=encrypt_data(Client_Model_key, wraped_model_info)
             signed_ct=sign_data(model_ct, Eth_private_key)
-            # save (send:) wrapped files in zip 
             wraped_msg=wrapfiles(('signature.bin',signed_ct), ('global_model.enc',model_ct))
+
+            '''
+            recv_msg = client_socket.recv(4096).decode('utf-8')
+            if recv_msg == "Global Model please":
+                client_socket.sendall(wraped_msg)
+                print(f"Model sent to client {client_address}: {addr} ")
+            '''
+            #save (send:) wrapped files in zip
             with gzip.open(main_dir + f"/server/files/wrapped_data_{addr}.tar.gz", 'wb') as gzip_file:
                gzip_file.write(wraped_msg)
    
@@ -449,7 +532,14 @@ if __name__ == "__main__":
                 print('-'*75)
                 client_addrs.append(Client_eth_addr)
 
-                #load model info (recieved:)
+                
+                # Accept a client connection
+                #client_socket, client_address = server_socket.accept()
+                #print(f"Model sent to client {client_address}")
+                #Recieved_msg = client_socket.recv(4096)
+                
+                # load model info (recieved:)
+                time.sleep(0.4)
                 Recieved_msg=open(main_dir + f"/server/files/wrapped_data_{Client_eth_addr}.tar.gz",'rb').read()  
                 unwrapped_msg=unwrap_files(unzip(Recieved_msg))
                 signature=unwrapped_msg['signature.bin']
@@ -457,7 +547,8 @@ if __name__ == "__main__":
                 
                 verify_sign(signature, local_model_ct, pubKey_from_tx(tx_u))
 
-                dec_wrapfile=decrypt_data(Model_key,local_model_ct)
+                client_Model_key=bytes.fromhex(clients_dict[Client_eth_addr]['Model key'])
+                dec_wrapfile=decrypt_data(client_Model_key,local_model_ct)
   
                 unwraped=unwrap_files(dec_wrapfile)
                 Local_model_info =unwraped['Local_model_info.json']
@@ -466,8 +557,21 @@ if __name__ == "__main__":
                 
                 if Hash_ct_epk_a!='None':  # assymmetric ratcheting
                     
-                    ct=open(main_dir + f"/client/files/kyber_ct_{address}.txt",'rb').read() 
-                    epk_a_pem=open(main_dir + f"/client/keys/DH_PubKey_{address}.txt",'rb').read()  
+                    #client_socket, client_address = server_socket.accept()
+                    #print(f"New connection from {client_address}")
+                    data = client_socket.recv(4096)
+                    if data is None:
+                        print(f"Failed to receive data from client {address}")
+                        client_socket.close()
+                        continue
+
+                    # Process the received data (assuming it's JSON encoded for simplicity)
+                    received_data = json.loads(data.decode('utf-8'))
+                    epk_a_pem = bytes.fromhex(received_data['epk_a_pem'])
+                    ct = bytes.fromhex(received_data['ciphertext'])
+                    
+                    #ct=open(main_dir + f"/client/files/kyber_ct_{address}.txt",'rb').read() 
+                    #epk_a_pem=open(main_dir + f"/client/keys/DH_PubKey_{address}.txt",'rb').read()  
 
                     assert hash_data(ct + epk_a_pem) == Hash_ct_epk_a  , f"on-chain and off-chain hash(ct||epk) of {Client_eth_addr} are not match :(" 
                     epk_a = ECC.import_key(epk_a_pem)
@@ -479,28 +583,27 @@ if __name__ == "__main__":
                 Res, Feedback_score = analyze_model(Local_model,Task_id_update,project_id_update)        
                 if Res:
                     cnt_models+=1
-                    #Models.append(Local_model)
-                    open(main_dir + f"/server/files/models/local_model_{Client_eth_addr}.pth",'wb').write(Local_model)  
-                    # terminate condition
-                    #if ord(os.urandom(1))& 1==1:  # random condition, this is for test
-                    #    T=True
-                    Tx_f=feedback_TX (Task_id, project_id, Client_eth_addr, Feedback_score, T)
-                
+                    open(main_dir + f"/server/files/models/local_model_{Client_eth_addr}.pth",'wb').write(Local_model)  #save local model for using in aggregation
+                    
+
+                    #if ord(os.urandom(1))& 1==1:  # random terminate condition, this is for test
+                    #   T=True  
+                    Tx_f=feedback_TX (r,Task_id, project_id, Client_eth_addr, Feedback_score, T)
                 if cnt_models==registered_cnt:
                     aggregate.aggregate_models(client_addrs) 
                     break
             else:
                 time.sleep(1)
 
-        for addr in clients_dict:  # ratcheting symmetric model key  for each client 
-            chain_key=bytes.fromhex(clients_dict[address]['Chain key'])  # get previous chain key
-
+        # ratcheting symmetric model key  for each client
+        for addr in clients_dict:   
+            chain_key=bytes.fromhex(clients_dict[addr]['Chain key'])  # get previous chain key
             if Hash_ct_epk_a=='None':
-                Root_key=chain_key
-            chain_key, Model_key = HKDF(Root_key, 32, salt_s, SHA384, 2)
-            #chain_key, Model_key = HKDF(chain_key, 32, salt_s, SHA384, 2)
-            clients_dict[address]['Model key'] = Model_key.hex()
-            clients_dict[address]['Chain key'] = chain_key.hex()  # update keys of dict of clients
+                chain_key, Model_key = HKDF(chain_key, 32, salt_s, SHA384, 2)
+            else:
+                chain_key, Model_key = HKDF(Root_key, 32, salt_s, SHA384, 2)
+            clients_dict[addr]['Model key'] = Model_key.hex()
+            clients_dict[addr]['Chain key'] = chain_key.hex()  # update keys of dict of clients
         salt_s=(bytes_to_long(salt_s)+1).to_bytes(32, byteorder='big')        #  salt_s  increment 
         salt_a=(bytes_to_long(salt_a)+1).to_bytes(32, byteorder='big')        #  salt_a  increment            
 
