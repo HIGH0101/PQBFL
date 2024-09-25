@@ -53,6 +53,7 @@ contract PQB_FederatedLearning {
     }
 
     struct Feedback {
+        uint round;
         uint taskId;
         address clientAddress; // Use Ethereum address as the client identifier
         address serverId;
@@ -72,7 +73,7 @@ contract PQB_FederatedLearning {
     event ProjectRegistered(uint project_id,int8 cnt_clients,address serverAddress,uint transactionTime, string hash_init_model, string hash_keys);
     event TaskPublished(uint round,string HashModel, string hash_keys, uint taskId,address serverAddress,uint project_id, uint creationTime, uint DeadlineTask);
     event ModelUpdated(uint round, string HashModel, string hash_ct_epk, uint taskId,address clientAddress, uint project_id, uint creationTime );
-    event FeedbackProvided(uint taskId, uint project_id,address clientAddress, address serverId, uint transactionTime, bool accepted, int8 scoreChange,bool terminate);
+    event FeedbackProvided(uint round,uint taskId, uint project_id,address clientAddress, address serverId, uint transactionTime, bool accepted, int8 scoreChange,bool terminate);
     event ClientRegistered(address clientAddress,uint project_id,int8 initialScore, string hash_PubKeys);
     event ProjectTerminated(uint taskId);
 
@@ -205,7 +206,7 @@ contract PQB_FederatedLearning {
     }
 
     // Function to provide feedback by the server
-    function provideFeedback(uint taskId,uint project_id ,address clientAddress , int8 scoreChange,bool termination ) external onlyOwner {
+    function provideFeedback(uint r, uint taskId,uint project_id ,address clientAddress , int8 scoreChange,bool termination ) external onlyOwner {
         // Validate inputs (add more validation as needed)
         require(tasks[taskId].taskId != 0, "Task does not exist");
 
@@ -217,6 +218,7 @@ contract PQB_FederatedLearning {
 
         // Record the feedback information
         Feedback memory feedback = Feedback({
+            round: r,
             taskId: taskId,
             terminate:termination,
             project_id: project_id,
@@ -234,7 +236,7 @@ contract PQB_FederatedLearning {
         updateClientScore(clientAddress, scoreChange);
 
         // Emit an event to notify about the provided feedback
-        emit FeedbackProvided(taskId, project_id, clientAddress, serverId, block.timestamp, true, scoreChange,termination);
+        emit FeedbackProvided(r, taskId, project_id, clientAddress, serverId, block.timestamp, true, scoreChange,termination);
     }
 
     // Function to update the clients score based on the feedback

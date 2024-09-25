@@ -1,5 +1,5 @@
 
-#  Post-quantum and blockchain-based Federated Learning framework (PQBFL)
+#  Post-quantum and blockchain-based Federated Learning protocol (PQBFL)
 This project is implementation of a quantum-secure blockchain-based framework for Federated Learning.
 It garantees post-quantum confidentiality of models in a federated learnind project based on blockchain.
 
@@ -52,7 +52,13 @@ Double click ganache emulation to provide us 10 accounts with 100 ETH
 
 **2. Compile and Deploy**
 
-you must compile and deploy the solidity contract on Ethereum blockchain(gnanache) 
+you must compile and deploy the solidity contract on Ethereum blockchain (gnanache) using ETH address and corresponding Private key
+
+```
+cd contract
+
+./compile-deploy.py {ETH address} {Private key}
+```
 
 ## Usage:
 

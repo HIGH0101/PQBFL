@@ -17,6 +17,9 @@ from Crypto.Hash import SHAKE128, SHA384
 from Crypto.Cipher import AES
 from Crypto.Util.number import *
 
+
+import socket, pickle
+
 import json
 import tarfile, io ,gzip
 import os, sys,time, ast
@@ -212,7 +215,7 @@ def listen_for_projcet():
 def listen_for_task(timeout): # Wait for a task to be published
     print("Listen for task...")
     start_time = time.time()
-    Task_id = Hashed_model = round = hash_keys= server_address=0  # Initialize with default value
+    Task_id = Hashed_model = round = hash_keys=project_id =server_address=D_t=0  # Initialize with default value
 
     while True:
         try:
@@ -292,6 +295,7 @@ def listen_for_feedback():
             feedback = feedback_events[0]
             accepted = feedback['args']['accepted']
             task_id=feedback['args']['taskId']
+            round = feedback['args']['round']
             project_id=feedback['args']['project_id']
             T=feedback['args']['terminate']
             score_change = feedback['args']['scoreChange']
@@ -308,19 +312,18 @@ def listen_for_feedback():
 
 if __name__ == "__main__":
 
-
-# Connect to the local Ganache blockchain
-    try:
+    try:      # Connect to the local Ganache blockchain
         ganache_url = "http://127.0.0.1:7545"  
         w3 = Web3(Web3.HTTPProvider(ganache_url))
         print(f"Client connected to blockchain (Ganache) successfully\n")
-    except:
-        print("An exception occurred")
+    except Exception as e:
+        print("An exception occurred in connecting to blockchain (Ganache) or offchain:", e)
+        exit()
 
     #Eth_private_key=sys.argv[1]
-    Eth_private_key = "0xf70f1df31e057da520d1a2e413513f3358e407fc119d61031299ace1d65b17e9"  			# Replace with the client's private key
+    Eth_private_key = "0x0ce1f486dabb155f39a28e4df0fd866f2709b312ec2716fe8663e9bedc74ccb7"  			# Replace with the client's private key
     #contract_address = sys.argv[2] 
-    contract_address = "0xfb9107Fe1e2318E3A292d3D21283A866273aa750"   # Replace with the deployed contract address
+    contract_address = "0xe40D06850e5A47BF0b535d0b3366791C14a5Dc30"   # Replace with the deployed contract address
     #num_epochs=int(sys.argv[3])
     num_epochs=5
 
@@ -342,17 +345,38 @@ if __name__ == "__main__":
     time.sleep(0.5)
     ini_score, Tx_r , registered_id_p = register_client(hash_data(epk_a), Project_id)         # Register to model training
 
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect(('127.0.0.1', 65432))
+
+    # recive public keys of server
+    msg="pubkeys please"
+    client_socket.send(msg.encode('utf-8'))
+    data = client_socket.recv(4096)
+    received_data = json.loads(data.decode('utf-8'))
+    epk_b_pem = bytes.fromhex(received_data['epk_b_pem'])
+    kpk_b= bytes.fromhex(received_data['kpk_b'])
+
     # recieved (load:) server's public keys (Bob) 
-    kpk_b=open(main_dir + f"/server/keys/Kyber_PubKey_{server_address}.txt",'rb').read()   # recived kyber pubkey from off-chain  
-    epk_b_pem=open(main_dir + f"/server/keys/DH_PubKey_{server_address}.txt",'rb').read()      # recived DH pubkey from off-chain 
+    #kpk_b=open(main_dir + f"/server/keys/Kyber_PubKey_{server_address}.txt",'rb').read()   # recived kyber pubkey from off-chain  
+    #epk_b_pem=open(main_dir + f"/server/keys/DH_PubKey_{server_address}.txt",'rb').read()      # recived DH pubkey from off-chain 
     assert hash_data(kpk_b+epk_b_pem) == hash_pubkeys, "on-chain and off-chain pub keys are not match :("     # compare recieved on-chain and off-chain public keys
 
     #verify_sign(signature, kpk_b+epk_b_pem, pubKey_from_tx(Tx_r))  # verify recieved kpk_b and epk_b signature
 
     epk_b = ECC.import_key(epk_b_pem) 
-    ct, ss_k = kyber768.encrypt(kpk_b)    
-    open(main_dir + f"/client/keys/DH_PubKey_{client_eth_address}.txt",'wb').write(epk_a) 
-    open(main_dir + f"/client/files/kyber_ct_{client_eth_address}.txt",'wb').write(ct)   
+    ct, ss_k = kyber768.encrypt(kpk_b)  
+
+
+    msg={}
+    msg['epk_a_pem']=epk_a.hex()
+    msg['ciphertext']=ct.hex()
+    msg_json = json.dumps(msg)
+
+    client_socket.send(msg_json.encode('utf-8'))     # send ct and public key
+    #data= client_socket.recv(4096)
+     
+    #open(main_dir + f"/client/keys/DH_PubKey_{client_eth_address}.txt",'wb').write(epk_a) 
+    #open(main_dir + f"/client/files/kyber_ct_{client_eth_address}.txt",'wb').write(ct)   
 
     ss_e = key_agreement(eph_priv=esk_a, eph_pub=epk_b, kdf=kdf)    # ECDH shared secret 
     SS = ss_k + ss_e     # (ss_k||ss_e) 
@@ -361,9 +385,8 @@ if __name__ == "__main__":
     Root_key= HKDF(SS, 32, salt_a, SHA384, 1)     # assymmetric ratcheting 
     chain_key=Root_key
 
-    chain_key, Model_key = HKDF(Root_key, 32, salt_s, SHA384, 2)   # symmetric ratcheting
+    chain_key, Model_key = HKDF(Root_key, 32, salt_s, SHA384, 2)   # first symmetric ratcheting
 
-    #i=1
     timeout=120
     Local_model_info={}
     while True:              # several times contributions (round)
@@ -377,12 +400,21 @@ if __name__ == "__main__":
             print(f"No new task received within the timeout period ({timeout} seconds). Exit")
             break           
         print(f"Round {r}")
-
+        print('r:',r,' K: ',Model_key.hex(),' RK: ',Root_key.hex())
         if hash_pubkeys !='None':    # recieve a assymmetric ratcheting trigger
             esk_a = ECC.generate(curve='p256')      # client's (Alice) private key ECDH 
             epk_a = bytes(esk_a.public_key().export_key(format='PEM'), 'utf-8')
-            kpk_b=open(main_dir + f"/server/keys/Kyber_PubKey_{server_address}.txt",'rb').read()   # recived kyber pubkey from off-chain  
-            epk_b_pem=open(main_dir + f"/server/keys/DH_PubKey_{server_address}.txt",'rb').read()      # recived DH pubkey from off-chain 
+
+            msg_syn="pubkeys please"
+            client_socket.send(msg_syn.encode('utf-8'))
+            data = client_socket.recv(4096)
+            received_data = json.loads(data.decode('utf-8'))
+            epk_b_pem = bytes.fromhex(received_data['epk_b_pem'])
+            kpk_b= bytes.fromhex(received_data['kpk_b'])
+
+
+            #kpk_b=open(main_dir + f"/server/keys/Kyber_PubKey_{server_address}.txt",'rb').read()   # recived kyber pubkey from off-chain  
+            #epk_b_pem=open(main_dir + f"/server/keys/DH_PubKey_{server_address}.txt",'rb').read()      # recived DH pubkey from off-chain 
             epk_b = ECC.import_key(epk_b_pem) 
             assert hash_data(kpk_b+epk_b_pem) == hash_pubkeys, "on-chain and off-chain pub keys are not match :("     # compare recieved on-chain and off-chain public keys
 
@@ -391,16 +423,31 @@ if __name__ == "__main__":
             ct, ss_k = kyber768.encrypt(kpk_b)
             hash_ct_epk_a=hash_data(ct+epk_a)    
 
+            msg['epk_a_pem']=epk_a.hex()
+            msg['ciphertext']=ct.hex()
+            msg_json = json.dumps(msg)
+
+            # send ct and public key
+            client_socket.send(msg_json.encode('utf-8'))
+
+
             # send (save:) ct and epk_a of client
-            open(main_dir + f"/client/keys/DH_PubKey_{client_eth_address}.txt",'wb').write(epk_a) 
-            open(main_dir + f"/client/files/kyber_ct_{client_eth_address}.txt",'wb').write(ct)  
+            #open(main_dir + f"/client/keys/DH_PubKey_{client_eth_address}.txt",'wb').write(epk_a) 
+            #open(main_dir + f"/client/files/kyber_ct_{client_eth_address}.txt",'wb').write(ct)  
 
             ss_e = key_agreement(eph_priv=esk_a, eph_pub=epk_b, kdf=kdf)    # ECDH shared secret 
             SS = ss_k + ss_e     # (ss_k||ss_e) 
             Root_key= HKDF(SS, 32, salt_a, SHA384, 1)      # assymmetric ratcheting  
             chain_key=Root_key
             
+
+        # msg_syn="Global Model please"
+        #client_socket.send(msg_syn.encode('utf-8'))
+        #data = client_socket.recv(4096)
+        #Recieved_msg = json.loads(data.decode('utf-8'))  
+  
         # load model info (recieved:)
+        time.sleep(0.5)
         Recieved_msg=open(main_dir + f"/server/files/wrapped_data_{client_eth_address}.tar.gz",'rb').read()  
         unwrapped_msg=unwrap_files(unzip(Recieved_msg))
         signature=unwrapped_msg['signature.bin']
@@ -447,6 +494,6 @@ if __name__ == "__main__":
                 print(f'server terminated the project id {project_id_fb}')
                 break
  
-        chain_key, Model_key = HKDF(chain_key, 32, salt_s, SHA384, 2)   # symmetric ratcheting
+        chain_key, Model_key = HKDF(chain_key, 32, salt_s, SHA384, 2)    # symmetric ratcheting
         salt_s= (bytes_to_long(salt_s)+1).to_bytes(32, byteorder='big')        #  salt_s  increment 
         salt_a= (bytes_to_long(salt_a)+1).to_bytes(32, byteorder='big')        #  salt_a  increment 
