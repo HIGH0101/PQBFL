@@ -4,4 +4,6 @@ cffi
 IPFS-Toolkit
 scikit-learn
 py-solc-x
-torch torchvision torchaudio
+torch 
+torchvision
+torchaudio
