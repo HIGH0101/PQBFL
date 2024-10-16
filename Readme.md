@@ -4,7 +4,7 @@
 
 <center>
 
-![system_model.png](./system_model.png){ width="400" }
+![system_model.png](./system_model.png)
 <figcaption>PQBFL system model</figcaption>
 
 </center>
@@ -69,24 +69,18 @@ cd contract
 
 There are two modes of operation in PQBFL that can be used in the following ways:
 
-### client mode:
+**client mode:**
 
 ```
 main.py [-h] [-m client] [-c CONTRACT_ADDRESS] [-ek ETH_PRIVATE_KEY] [-e NUM_EPOCHS]
-```
 
-**Example**
-```
 python main.py -m client -ek 0x8066640e13243b835a97322b56a47a85d352f3b3c1a5e88b72136e38fa8ab0cf -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -e 8
 ```
 
-### server mode:
+**server mode:**
 ```
 main.py [-h] [-m server] [-c CONTRACT_ADDRESS] [-ek ETH_PRIVATE_KEY] [-e NUM_EPOCHS] [-id TASK_ID] [-r Round] [-p participants count]
-```
 
-**Example**
-```
 python main.py -m server -ek 0xa640db19ba46309d661d7434203293271a6bf8ce6b446462395dbfe4f6a70db8 -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -id 22 -r 10 -p 3
 ```
 
