@@ -6,7 +6,7 @@
 ![system_model.png](./system_model.png)
 <figcaption>PQBFL system model</figcaption>
 
-## prerequisites
+## Prerequisites
 
 **1. Download  Ganache** https://trufflesuite.com/ganache/
 
