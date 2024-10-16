@@ -149,4 +149,4 @@ def train(num_epochs,client_eth_address):
 
     # Training on each part
     train_model(model, train_dataloader,validation_dataloader, criterion, optimizer, num_epochs,device='cpu')
-    torch.save(model.state_dict(), main_dir+f'/client/files/local_model_{client_eth_address}.pth')
+    torch.save(model.state_dict(), main_dir+f'/participant/files/local_model_{client_eth_address}.pth')

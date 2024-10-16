@@ -1,13 +1,17 @@
 
 #  Post-quantum and blockchain-based Federated Learning protocol (PQBFL)
-This project is implementation of a quantum-secure blockchain-based framework for Federated Learning.
-It garantees post-quantum confidentiality of models in a federated learnind project based on blockchain.
+ PQBFL is a quantum-secure blockchain-based protocol for Federated Learning. It guarantees post-quantum confidentiality and also a "harvest-now-decrypt-later" attack for the transfer models in a federated learning system. Blockchain is used as an exchange facilitator and tracking structure for the transmitted models.  
 
+<center>
 
+![system_model.png](./system_model.png){ width="400" }
+<figcaption>PQBFL system model</figcaption>
+
+</center>
 
 ## prerequisites
 
-**1. Download  Ganache  from  here:** https://trufflesuite.com/ganache/
+**1. Download  Ganache** https://trufflesuite.com/ganache/
 
 <!--
 **2. you have to install IPFS CLI (kubo) from here:** https://docs.ipfs.tech/how-to/kubo-basic-cli/#install-kubo
@@ -25,8 +29,10 @@ ipfs config --json Experimental.Libp2pStreamMounting true
 you should install required packages
 
 ```
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
+
+then You have to compile c files
 
 ```
 git clone https://github.com/kpdemetriou/pqcrypto.git
@@ -36,9 +42,8 @@ cd pqcrypto
 sudo python3 compile.py
 ```
 
-thnn You have to compile c files
 
-## Run
+## Run infrastructure
 <!--
 **1. Run IPFS cli:**
 
@@ -62,16 +67,27 @@ cd contract
 
 ## Usage:
 
+There are two modes of operation in PQBFL that can be used in the following ways:
+
+### client mode:
+
 ```
-main.py [-h] [-m {client,server}] [-c CONTRACT_ADDRESS] [-k PRIVATE_KEY] [-e NUM_EPOCHS] [-id TASK_ID]
+main.py [-h] [-m client] [-c CONTRACT_ADDRESS] [-ek ETH_PRIVATE_KEY] [-e NUM_EPOCHS]
 ```
-**Example client mode:**
+
+**Example**
 ```
-python main.py -m client -k 0x8066640e13243b835a97322b56a47a85d352f3b3c1a5e88b72136e38fa8ab0cf -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -e 8
+python main.py -m client -ek 0x8066640e13243b835a97322b56a47a85d352f3b3c1a5e88b72136e38fa8ab0cf -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -e 8
 ```
-**Example server mode:**
+
+### server mode:
 ```
-python main.py -m server -k 0xa640db19ba46309d661d7434203293271a6bf8ce6b446462395dbfe4f6a70db8 -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -id 22
+main.py [-h] [-m server] [-c CONTRACT_ADDRESS] [-ek ETH_PRIVATE_KEY] [-e NUM_EPOCHS] [-id TASK_ID] [-r Round] [-p participants count]
+```
+
+**Example**
+```
+python main.py -m server -ek 0xa640db19ba46309d661d7434203293271a6bf8ce6b446462395dbfe4f6a70db8 -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -id 22 -r 10 -p 3
 ```
 
 ## Note
