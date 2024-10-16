@@ -1,6 +1,6 @@
 
 #  Post-quantum and blockchain-based Federated Learning protocol (PQBFL)
- PQBFL is a quantum-secure blockchain-based protocol for Federated Learning. It guarantees post-quantum confidentiality, like "harvest-now-decrypt-later" attack for transfer models in a federated learning system. Blockchain is used as an exchange facilitator and tracking structure for the transmitted models. 
+ PQBFL is a quantum-secure blockchain-based protocol for Federated Learning. It guarantees post-quantum confidentiality and also a "harvest-now-decrypt-later" attack for the transfer models in a federated learning system. Blockchain is used as an exchange facilitator and tracking structure for the transmitted models.  
 
 <center>
 
