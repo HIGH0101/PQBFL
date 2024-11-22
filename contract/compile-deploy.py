@@ -22,7 +22,7 @@ else:
     web3.eth.default_account = deployer_account
 
     # Read the Solidity source code from the .sol file
-    with open("./contract.sol", "r") as f:
+    with open("./contract/contract.sol", "r") as f:
         contract_source_code = f.read()
 
     compiled_sol = compile_standard(
@@ -39,14 +39,14 @@ else:
     },
     solc_version="0.8.0",
     ) 
-    with open("./compiled-code.json", "w") as f:
+    with open("./contract/compiled-code.json", "w") as f:
         json.dump(compiled_sol, f)
     # get bytecode
     contract_bytecode = compiled_sol["contracts"]["contract.sol"]["PQB_FederatedLearning"]["evm"]["bytecode"]["object"]
     # get abi
     contract_abi = json.loads(compiled_sol["contracts"]["contract.sol"]["PQB_FederatedLearning"]["metadata"])["output"]["abi"]
 
-    with open("./contract-abi.json", "w") as f:
+    with open("./contract/contract-abi.json", "w") as f:
         json.dump(contract_abi, f)
 
     # Deploy the contract
