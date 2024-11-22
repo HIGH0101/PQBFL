@@ -7,3 +7,4 @@ py-solc-x
 torch 
 torchvision
 torchaudio
+tenseal

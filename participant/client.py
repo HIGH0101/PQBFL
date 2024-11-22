@@ -2,7 +2,9 @@ from web3 import Web3
 from eth_account import Account
 from eth_account.messages import *
 from eth_keys import keys
-from eth_utils import decode_hex
+#from eth_utils import decode_hex
+#import tensorflow as tf
+import torch
 
 from eth_account._utils.legacy_transactions import serializable_unsigned_transaction_from_dict
 from eth_account._utils.signing import to_standard_v
@@ -17,16 +19,23 @@ from Crypto.Hash import SHAKE128, SHA384
 from Crypto.Cipher import AES
 from Crypto.Util.number import *
 
-
+import tenseal as ts
 import socket, pickle
 
 import json
 import tarfile, io ,gzip
 import os, sys,time, ast
 import hashlib
+#import numpy as np
+
 
 import os 
 import train_model
+from train_model import SimpleCNN
+
+#import Utils
+#from Utils import utils
+
 
 
 def kdf(x):
@@ -74,9 +83,12 @@ def decrypt_data(key,cipher):
     dec = crypto.decrypt(cipher[8:])
     return dec
 
+
 def hash_data(data):
     hashed_data=hashlib.sha256(data).hexdigest()
     return hashed_data
+
+
 
 def pubKey_from_tx(tx_hash):
     tx = w3.eth.get_transaction(tx_hash)
@@ -116,16 +128,74 @@ def verify_sign(signed_data,msg,pubkey):
     v_sign = bytes_to_long(signed_data[96:97])
     sign_bytes = signed_data[97:]
     signature = SignedMessage( messageHash=msg_hash,r=r_sign,s=s_sign,v=v_sign,signature=sign_bytes)
-    '''
+    
     # Signature verification  
-    key = ECC.import_key(pubkey)
-    verifier = DSS.new(key, 'fips-186-3')
-    try:                # verify signature of client's public Keys
-        verifier.verify(msg, signature)
-    except ValueError:
-        print("The message is not authentic.")
-    '''
+    #key = ECC.import_key(pubkey)
+    #verifier = DSS.new(key, 'fips-186-3')
+    #try:                # verify signature of client's public Keys
+    #    verifier.verify(msg, signature)
+    #except ValueError:
+    #    print("The message is not authentic.")
+    
 
+def HE_decrypt_model(encrypted_weights, model, context):
+    context.generate_galois_keys()
+    context.generate_relin_keys()
+    decrypted_weights = {}
+    for name, encrypted_weight in encrypted_weights.items():
+        decrypted_weights[name] = encrypted_weight.decrypt()  # Decrypt using context's secret key
+
+    # Convert decrypted weights back into PyTorch tensors
+    state_dict = model.state_dict()
+    for name, decrypted_weight in decrypted_weights.items():
+        tensor_weight = torch.tensor(decrypted_weight).view(state_dict[name].shape)
+        state_dict[name].copy_(tensor_weight)
+    return model
+
+
+
+def HE_encrypt_model(model, context,HE_algorithm):
+    context.global_scale = 2 ** 40
+    context.generate_galois_keys()
+    context.generate_relin_keys()
+    encrypted_weights = {}
+    for name, param in model.named_parameters():
+        param_data = param.detach().numpy().flatten().tolist() 
+        if HE_algorithm=='BFV':
+            encrypted_weights[name] = ts.bfv_vector(context, param_data)  # Encrypt the data
+        else:
+            encrypted_weights[name] = ts.ckks_vector(context, param_data)  # Encrypt the data
+    return encrypted_weights
+
+
+def deserialize_data(serialized_data, context,HE_algorithm):
+    # Load data from bytes without context metadata
+    serialized_weights = pickle.loads(serialized_data)
+    
+    # Deserialize weights into TenSEAL BFV vectors using provided context
+    deserialized_weights = {}
+    for name, weight_bytes in serialized_weights.items():
+        if HE_algorithm=='BFV':
+            deserialized_weights[name] = ts.bfv_vector_from(context, weight_bytes)  # deserialize with context
+        else:
+            deserialized_weights[name] = ts.ckks_vector_from(context, weight_bytes)  # deserialize with context
+    
+    return deserialized_weights
+
+
+def serialize_data(encrypted_model):
+    # Serialize each encrypted weight
+    serialized_weights = {}
+    for name, enc_weight in encrypted_model.items():
+        serialized_weights[name] = enc_weight.serialize()  # serialize only the weights, not context
+    
+    # Convert to bytes using pickle
+    buffer = io.BytesIO()
+    pickle.dump(serialized_weights, buffer)
+    return buffer.getvalue()
+
+
+    
 # Register the client
 def register_client(hash_epk,Project_id):   
     try:
@@ -147,10 +217,10 @@ def register_client(hash_epk,Project_id):
         epk_bytes = log_data_bytes[offset+32:offset+32+epk_len]  # Extract publicKey using its length
         onchain_epk = epk_bytes.decode('utf-8')  # Assuming the public key is ASCII/UTF-8 encoded
         assert onchain_epk==hash_epk, 'epk placed on the chain is not same as generated epk !!'
-        print('registertion on contract completed successfully')
+        print('Project registration: successfully')
+        print(f'    Project ID: {project_id}')
         print(f'    Tx: {tx_registration}')
         print(f'    Your Address: {ETH_address}')
-        print(f'    Project ID: {project_id}')
         print(f'    Gas: {gas_used} Wei')
         print(f'    Initial Score: {initial_score}')
         print(f'    PublicKey: {onchain_epk}')
@@ -164,10 +234,15 @@ def register_client(hash_epk,Project_id):
             sys.exit()
     return initial_score, tx_registration, project_id
 
-
+'''
 def task_terminated(Task_Id):
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)
     return contract.functions.isProjectTerminated(Task_Id).call()
+'''
+
+def task_completed(task_id, project_id):
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+    return contract.functions.isTaskDone(task_id, project_id).call()
 
 
 def listen_for_projcet():
@@ -184,7 +259,7 @@ def listen_for_projcet():
                     initial_model_hash= events[0]['args']['hash_init_model']
                     server_hash_pubkeys = events[0]['args']['hash_keys']
                     tx_hash = events[0]['transactionHash']
-                    print('Received a project:')
+                    print('Received Project Info:')
                     print(f'    Poject ID: {project_id}')
                     print(f'    Server address: {server_address}')
                     print(f'    required client count: {cnt_clients}')
@@ -230,7 +305,7 @@ def listen_for_task(timeout): # Wait for a task to be published
                 creation_time = time.gmtime(int(events[0]['args']['creationTime']))
                 D_t=events[0]['args']['DeadlineTask']            
                 if registered_id_p==project_id:
-                    print('Received a published task:')
+                    print('Published Task Info:')
                     print(f'    Task ID: {Task_id}')
                     print(f'    Project ID: {project_id}')
                     print(f'    Server address: {server_address}')
@@ -253,8 +328,8 @@ def update_model_Tx(r, Hash_model,hash_ct_epk,Task_id,project_id):
     tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
     gas_used=tx_receipt['gasUsed']
     tx_update=tx_receipt['transactionHash'].hex()
-    print('-'*75)
-    print('Local model updated successfully')
+    print(' ')
+    print('Train completed, model update Info:')
     print(f'    Tx: {tx_update}')
     print(f'    Gas: {gas_used} Wei')
     print('-'*75)
@@ -280,7 +355,7 @@ def listen_for_feedback(client_address):
                 T = feedback['args']['terminate']
                 score_change = feedback['args']['scoreChange']
                 server_addr = feedback['args']['serverId']
-                print('Feedback model received:')
+                print('Feedback Info:')
                 print(f'    Tx: {tx_hash}')
                 print(f'    Status: {accepted}')
                 print(f'    Score: {score_change}')
@@ -290,6 +365,19 @@ def listen_for_feedback(client_address):
                 return project_id, T, score_change
         time.sleep(1) # Small sleep to avoid overwhelming the blockchain with event polling
 
+
+'''
+
+def verify_models_identical(original_model, deserialized_model):
+    if set(original_model.keys()) != set(deserialized_model.keys()):
+        return False
+        
+    for name in original_model.keys():
+        if original_model[name].serialize() != deserialized_model[name].serialize():
+            return False
+    
+    return True
+'''
 
 
 if __name__ == "__main__":
@@ -303,11 +391,13 @@ if __name__ == "__main__":
         exit()
 
     Eth_private_key=sys.argv[1]
-    #Eth_private_key = "0xf69cf2ef85af57a8e559885de18d0fb830fbd282098fc708a8505dbdbc1111e3"  			# Replace with the client's private key
+    #Eth_private_key = "0xba2039b2b2d9f5d5592b4566b9176983de1a0d97142f83687c52d77a16df6c19"  			# Replace with the client's private key
     contract_address = sys.argv[2] 
-    #contract_address = "0xc37eE4E9E44d89099C87d4272fa7f574b0C9CDe7"   # Replace with the deployed contract address
+    #contract_address = "0xFAa6d8Bfc6A5c1D96858f179Cc40B49C7Dae52d9"   # Replace with the deployed contract address
     num_epochs=int(sys.argv[3])
     #num_epochs=4
+    HE_algorithm=sys.argv[4]    # Homomorphic encryption activation
+    #HE_algorithm='CKKS'
 
     account = Account.from_key(Eth_private_key)
     ETH_address = account.address
@@ -319,13 +409,22 @@ if __name__ == "__main__":
         contract_abi = json.load(abi_file)      # Load ABI from file
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
 
-    Tx_r, Project_id,server_address,cnt_clients, initial_model_hash, hash_pubkeys=listen_for_projcet()
+    Tx_r, project_id,server_address,cnt_clients, initial_model_hash, hash_pubkeys=listen_for_projcet()
 
     esk_a = ECC.generate(curve='p256')      # client's (Alice) private key ECDH 
     epk_a = bytes(esk_a.public_key().export_key(format='PEM'), 'utf-8')
 
+    if HE_algorithm=='CKKS':
+        with open(main_dir + f'/participant/keys/CKKS_with_priv_key.pkl', "rb") as f: # load already recieved HE key
+            serialized_with_key = pickle.load(f)
+        HE_config_with_key = ts.context_from(serialized_with_key)
+    elif HE_algorithm=='BFV':
+        with open(main_dir + f'/participant/keys/BFV_with_priv_key.pkl', "rb") as f: # load already recieved HE key
+            serialized_with_key = pickle.load(f)
+        HE_config_with_key = ts.context_from(serialized_with_key)
+
     time.sleep(0.5)
-    ini_score, Tx_r , registered_id_p = register_client(hash_data(epk_a), Project_id)         # Register to model training
+    ini_score, Tx_r , registered_id_p = register_client(hash_data(epk_a), project_id)         # Register to model training
 
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect(('127.0.0.1', 65432))
@@ -370,9 +469,8 @@ if __name__ == "__main__":
     while True:              # several times contributions (round)
         hash_ct_epk_a='None'
         r, Task_id, Hash_model,hash_pubkeys,project_id, server_eth_addr, D_t= listen_for_task(timeout)          # Wait to Task publish 
-
-        if task_terminated(Task_id):   # check contract that task has not finished 
-            print(f"Server has already terminated Task id: {Task_id} ")
+        if task_completed(Task_id, project_id):   # check contract that task has not finished 
+            print(f"Server has already terminated Task id: {Task_id}")
             break
         if Task_id==0:
             print(f"No new task received within the timeout period ({timeout} seconds). Exit")
@@ -412,7 +510,7 @@ if __name__ == "__main__":
             client_socket.close()
   
         # load model info (recieved:)
-        time.sleep(0.8)
+        time.sleep(2)
         Recieved_msg=open(main_dir + f"/server/files/wrapped_data_{ETH_address}.tar.gz",'rb').read()  
         unwrapped_msg=unwrap_files(unzip(Recieved_msg))
         signature=unwrapped_msg['signature.bin']
@@ -421,19 +519,33 @@ if __name__ == "__main__":
         dec_wrapfile=decrypt_data(Model_key,global_model_ct)
         unwraped=unwrap_files(dec_wrapfile)
         task_info=unwraped['task_info.json']
-        global_model=unwraped['Model.pth']
-        assert Hash_model==hash_data(global_model), "Hash recieved on-chain and off-chain models are not match :("    
 
-        
+        if r!=1 and HE_algorithm!='None':
+            global_HE_model=unwraped['global_HE_model.bin']
+            assert Hash_model==hash_data(global_HE_model), " on-chain and off-chain models hash are not match :("
+            encrypted_weights=deserialize_data(global_HE_model, HE_config_with_key,HE_algorithm)
+            HE_dec_model = HE_decrypt_model(encrypted_weights, Local_model, HE_config_with_key)
+        else:
+            global_model=unwraped['global_model.pth']
+            assert Hash_model==hash_data(global_model), "on-chain and off-chain models hash are not match :("    
+
     # Train_local_model
         print("Start training...")
-        train_model.train(num_epochs,ETH_address)   # train and save the model in files folder
-        Local_model= open(main_dir + f"/participant/files/local_model_{ETH_address}.pth",'rb').read()     
-        Hash_model = hash_data(Local_model)
+        dataset_addr=main_dir+'/dataset/UCI HAR Dataset/train/'
+        Local_model=train_model.train(num_epochs, dataset_addr, num_classes=6)   # train and save the model in files folder
+        
+        if HE_algorithm!='None':
+            HE_enc_model=HE_encrypt_model(Local_model,HE_config_with_key,HE_algorithm)
+            serialized_model=serialize_data(HE_enc_model)
+            Hash_model = hash_data(serialized_model)
+            Local_model_info['Model hash'] = Hash_model
+        else:  
+            Local_model = pickle.dumps(Local_model.state_dict())
+            Hash_model = hash_data(Local_model)
+            Local_model_info['Model hash'] = Hash_model
 
         #build local model information
-        Local_model_info['Round number'] = r
-        Local_model_info['Model hash'] = Hash_model
+        Local_model_info['Round number'] = r    
         Local_model_info['Project id'] = project_id
         Local_model_info['Task id'] = Task_id
 
@@ -441,7 +553,10 @@ if __name__ == "__main__":
 
         Local_model_info['Update Tx'] = Tx_u
         json_info = json.dumps(Local_model_info, indent=4)
-        wraped_model_info=wrapfiles(ETH_address, ('Local_model_info.json',json_info.encode()), (f'local_model_{ETH_address}.pth',Local_model))  # Wrap Model and info files 
+        if HE_algorithm!='None':
+            wraped_model_info=wrapfiles(ETH_address, ('Local_model_info.json',json_info.encode()), (f'local_HE_model_{ETH_address}.bin',serialized_model)) 
+        else:
+            wraped_model_info=wrapfiles(ETH_address, ('Local_model_info.json',json_info.encode()), (f'local_model_{ETH_address}.pth',Local_model))  # Wrap Model and info files 
         model_ct=encrypt_data(Model_key, wraped_model_info)
         signed_ct=sign_data(model_ct, Eth_private_key)
 
@@ -449,6 +564,8 @@ if __name__ == "__main__":
         wraped_msg=wrapfiles(ETH_address, ('signature.bin',signed_ct), ('Local_model.enc', model_ct))
         with gzip.open(main_dir + f"/server/files/wrapped_data_{ETH_address}.tar.gz", 'wb') as gzip_file:
             gzip_file.write(wraped_msg)
+    
+    
         project_id_fb, T, score=listen_for_feedback(ETH_address)
         if T:
             if project_id_fb==project_id:

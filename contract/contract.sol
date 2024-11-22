@@ -8,14 +8,10 @@ contract PQB_FederatedLearning {
         uint round;
         string HashModel;
         uint taskId;
-        //address serverId;
         address serverAddress;
         string hash_keys;
-        //uint primaryModelId;
-        //string HashSignature;
         uint project_id;
         uint DeadlineTask;
-        //string ipfsAddress;
         uint creationTime;
         bool completed;
     }
@@ -35,7 +31,6 @@ contract PQB_FederatedLearning {
         string hash_init_model;
         string hash_keys;
         int8 registeredClients;
-
     }
 
     struct UpdatedModel {
@@ -46,10 +41,6 @@ contract PQB_FederatedLearning {
         uint project_id;
         uint creationTime;
         address clientAddress;
-        //address clientAddress; // Use Ethereum address as the client identifier
-
-        // string clientSignature; // Signature of the client
-        //string ipfsId; // IPFS ID
     }
 
     struct Feedback {
@@ -63,19 +54,22 @@ contract PQB_FederatedLearning {
         bool accepted;
         int8 scoreChange;
     }
-    mapping(uint => Project) public project;
+
+    mapping(uint => Project) public projects;
     mapping(uint => Task) public tasks;
     mapping(address => Client) public clients;
     mapping(uint => UpdatedModel) public updatedModels;
     mapping(uint => Feedback) public feedbacks;
-    mapping(uint => bool) public projectTerminated;
+    mapping(uint => bool) public TaskDone;
+    mapping(uint => bool) public ProjectDone;
 
     event ProjectRegistered(uint project_id,int8 cnt_clients,address serverAddress,uint transactionTime, string hash_init_model, string hash_keys);
     event TaskPublished(uint round,string HashModel, string hash_keys, uint taskId,address serverAddress,uint project_id, uint creationTime, uint DeadlineTask);
     event ModelUpdated(uint round, string HashModel, string hash_ct_epk, uint taskId,address clientAddress, uint project_id, uint creationTime );
     event FeedbackProvided(uint round,uint taskId, uint project_id,address clientAddress, address serverId, uint transactionTime, bool accepted, int8 scoreChange,bool terminate);
     event ClientRegistered(address clientAddress,uint project_id,int8 initialScore, string hash_PubKeys);
-    event ProjectTerminated(uint taskId);
+    event ProjectTerminated(uint project_id);
+    event TaskisDone(uint taskId, uint project_id);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only the owner can call this function");
@@ -86,15 +80,13 @@ contract PQB_FederatedLearning {
         owner = msg.sender;
     }
 
+
     // Function to register a new client
     function registerClient(string calldata hash_PubKeys, uint project_id) external {
         // Use Ethereum address as the client identifier
-        require(project[project_id].registeredClients < project[project_id].cnt_clients, "Registration completed");
+        require(projects[project_id].registeredClients < projects[project_id].cnt_clients, "Registration completed");
         address clientAddress = msg.sender;
-        
-
         int8 initialScore = 0;
-
         // Store client information in the 'clients' mapping
         clients[clientAddress] = Client({
             clientAddress: clientAddress,
@@ -102,54 +94,31 @@ contract PQB_FederatedLearning {
             project_id:project_id,
             hash_PubKeys: hash_PubKeys
         });
-        project[project_id].registeredClients += 1;
+        projects[project_id].registeredClients += 1;
         // Emit an event to notify external entities about the new client registration
         emit ClientRegistered(clientAddress, project_id, initialScore, hash_PubKeys);
     }
 
-    function registerProject(uint project_id, int8 cnt_clients,string memory hash_init_model, string memory hash_keys) external {
-        //require(tasks[taskId].taskId != 0, "Task does not exist");
-        //require(!tasks[taskId].completed, "Task is already completed");
-        require(!projectTerminated[project_id], "Task is already terminated");
 
-        //address serverAddress = tasks[project_id].serverId;
-        /*
-        UpdatedModel memory updatedModel = UpdatedModel({
-            taskId: taskId,
-            clientAddress: clientAddress,
-            modelHash: initialModelHash,
-            ipfsId: ""
-        });
-        */
-        Project memory projectReg = Project({
+        // Register a project
+    function registerProject(uint project_id, int8 cnt_clients, string memory hash_init_model, string memory hash_keys) external {
+        require(!ProjectDone[project_id], "Project is already terminated");
+        //require(projects[project_id].project_id == 0, "Project already exists");
+        projects[project_id] = Project({
             project_id: project_id,
             cnt_clients: cnt_clients,
-            serverAddress:  msg.sender,
+            serverAddress: msg.sender,
             transactionTime: block.timestamp,
-            hash_init_model:hash_init_model,
-            hash_keys:hash_keys,
-            registeredClients: 0 // Initialize the registeredClients counter to 0
+            hash_init_model: hash_init_model,
+            hash_keys: hash_keys,
+            registeredClients: 0
         });
-
-        project[project_id] = projectReg;
-
-        // Emit the ProjectRegistered event to notify external entities
-        emit ProjectRegistered(project_id, cnt_clients,  msg.sender, block.timestamp, hash_init_model, hash_keys);
-        //updatedModels[taskId] = updatedModel;
-        //emit ModelUpdated(taskId, clientAddress, initialModelHash, "");
-        //tasks[taskId].completed = true;
-        //emit FeedbackProvided(taskId, clientAddress, owner, block.timestamp, true, 0);
+        emit ProjectRegistered(project_id, cnt_clients, msg.sender, block.timestamp, hash_init_model, hash_keys);
     }
+
 
     // Function to publish a new task
     function publishTask(uint r,  string memory HashModel, string memory hash_keys, uint Task_id, uint project_id, uint deadline) external onlyOwner {
-        // Generate a unique task ID
-        //uint taskId = generateUniqueTaskId();
-
-        // Validate inputs (add more validation as needed)
-        //require(primaryModelId > 0, "Invalid primary model ID");
-        //require(bytes(Ipfs_id).length > 0, "IPFS address cannot be empty");
-
         // Create a Task object
         Task memory newTask = Task({
             round: r,
@@ -165,27 +134,20 @@ contract PQB_FederatedLearning {
             creationTime: block.timestamp, // Current block timestamp
             completed: false
         });
-
-        // Store task information in the 'tasks' mapping
-        tasks[Task_id] = newTask;
-
+        tasks[Task_id] = newTask; // Store task info in the 'tasks' mapping
         // Emit an event to notify external entities about the new task
         emit TaskPublished(r, HashModel, hash_keys, Task_id, msg.sender, project_id, block.timestamp, deadline);
     }
+    
 
     // Function to update a model by a client
     function updateModel(uint r, string memory HashModel,string memory hash_ct_epk, uint Task_id, uint project_id) external {
         // Validate inputs (add more validation as needed)
         require(bytes(HashModel).length > 0, "Model hash cannot be empty");
-        // require(bytes(clientSignature).length > 0, "Client signature cannot be empty");
-        //require(bytes(ipfsId).length > 0, "IPFS ID cannot be empty");
-
         // Check if the task exists
         require(tasks[Task_id].taskId != 0, "Task does not exist");
-
         // Get the client address from the sender address
         address clientAddress = msg.sender;
-
         // Create an UpdatedModel object
         UpdatedModel memory updatedModel = UpdatedModel({
             round: r,
@@ -195,27 +157,20 @@ contract PQB_FederatedLearning {
             hash_ct_epk: hash_ct_epk,
             creationTime: block.timestamp, // Current block timestamp
             project_id: project_id
-
         });
-
-        // Store updated model information in the 'updatedModels' mapping
-        updatedModels[Task_id] = updatedModel;
-
+        updatedModels[Task_id] = updatedModel;  // Store updated model info in the 'updatedModels' mapping
         // Emit an event to notify the server about the updated model
         emit ModelUpdated(r, HashModel, hash_ct_epk,Task_id, msg.sender, project_id, block.timestamp);
     }
+
 
     // Function to provide feedback by the server
     function provideFeedback(uint r, uint taskId,uint project_id ,address clientAddress , int8 scoreChange,bool termination ) external onlyOwner {
         // Validate inputs (add more validation as needed)
         require(tasks[taskId].taskId != 0, "Task does not exist");
-
         // Ensure the task is completed before providing feedback
         //require(tasks[taskId].completed, "Task is not completed");
-
-        // Get the server ID from the owner address
-        address serverId = msg.sender;
-
+        address serverId = msg.sender; // Get the server ID from the owner address
         // Record the feedback information
         Feedback memory feedback = Feedback({
             round: r,
@@ -228,54 +183,55 @@ contract PQB_FederatedLearning {
             accepted: true,
             scoreChange: scoreChange
         });
-
-        // Store feedback information in the 'feedbacks' mapping
-        feedbacks[taskId] = feedback;
-
-        // Update the clients score based on the feedback
-        updateClientScore(clientAddress, scoreChange);
-
+        feedbacks[taskId] = feedback;   // Store feedback info in the 'feedbacks' mapping
+        updateClientScore(clientAddress, scoreChange);   // Update the clients score based on the feedback
         // Emit an event to notify about the provided feedback
         emit FeedbackProvided(r, taskId, project_id, clientAddress, serverId, block.timestamp, true, scoreChange,termination);
     }
+    
 
     // Function to update the clients score based on the feedback
     function updateClientScore(address clientAddress, int8 scoreChange) internal {
         // Update the client score
         clients[clientAddress].score += scoreChange;
-
-        // Ensure the score is within a certain range (optional)
         // You can add more logic based on your specific scoring requirements
         if (clients[clientAddress].score < 0) {
             clients[clientAddress].score = 0;
         }
-
-        // Additional logic for rewarding or penalizing the client based on the feedback
-        // Add your own reward/penalty mechanism based on the feedback
     }
-    
-    // Function to get the client ID based on the client address
-    //function getClientId(address clientAddress) internal view returns (uint) {
-        // Implement your logic to retrieve the client ID based on the address
-        // This could involve iterating through 'clients' mapping or using another lookup mechanism
-        // For simplicity, let's assume the client's address is the client ID
-    //    return clientAddress;
-    //}
 
-    function finishProject(uint taskId) external onlyOwner {
-        // Ensure the project exists
-        require(tasks[taskId].taskId != 0, "Project does not exist");
 
-        // Mark the project as terminated
-        projectTerminated[taskId] = true;
-
+    function finishProject(uint project_id) external onlyOwner {
+        require(projects[project_id].project_id != 0, "Project does not exist");
+        require(!ProjectDone[project_id], "Project is already terminated");
+        ProjectDone[project_id] = true;
         // Emit an event to notify about project termination
-        emit ProjectTerminated(taskId);
+        emit ProjectTerminated(project_id);
     }
+
+    function finishTask(uint taskId, uint projectId) external onlyOwner {
+    // Ensure the project exists
+        require(tasks[taskId].taskId != 0, "Task does not exist");
+        require(tasks[taskId].project_id == projectId, "Task does not belong to the specified project");
+        require(!TaskDone[taskId], "Task is already marked as done");
+        TaskDone[taskId] = true; // Mark the project as terminated
+    // Emit an event to notify about project termination
+    emit TaskisDone(taskId, projectId);
+    }
+
+
+    function isTaskDone(uint taskId, uint projectId) external view returns (bool) {
+        // Ensure the task exists and belongs to the specified project
+        require(tasks[taskId].project_id == projectId, "Task does not belong to the specified project");
+        return TaskDone[taskId];    // Return the termination status
+    }
+
+
     // Function to check if a project is terminated
-    function isProjectTerminated(uint taskId) external view returns (bool) {
-        return projectTerminated[taskId];
+    function isProjectTerminated(uint project_id) external view returns (bool) {
+       return ProjectDone[project_id];
     }
+
 
     // Function to generate a unique task ID (replace with your own logic)
     function generateUniqueTaskId() internal view returns (uint) {
