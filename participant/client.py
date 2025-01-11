@@ -1,4 +1,5 @@
 from web3 import Web3
+import random
 from eth_account import Account
 from eth_account.messages import *
 from eth_keys import keys
@@ -21,6 +22,7 @@ from Crypto.Util.number import *
 
 import tenseal as ts
 import socket, pickle
+import struct
 
 import json
 import tarfile, io ,gzip
@@ -89,7 +91,6 @@ def hash_data(data):
     return hashed_data
 
 
-
 def pubKey_from_tx(tx_hash):
     tx = w3.eth.get_transaction(tx_hash)
     v = tx['v']
@@ -109,6 +110,7 @@ def pubKey_from_tx(tx_hash):
     public_key = signature.recover_public_key_from_msg_hash(tx_hash)     # Recover the public key from the signature
     return public_key
 
+
 def sign_data(msg, Eth_private_key):
     encoded_ct = encode_defunct(msg)
     signed_ct = w3.eth.account.sign_message(encoded_ct, private_key=Eth_private_key)
@@ -120,6 +122,7 @@ def sign_data(msg, Eth_private_key):
     signed_msg = message_hash + r_bytes + s_bytes  + v_bytes  + sign_bytes
     return signed_msg
 
+
 def verify_sign(signed_data,msg,pubkey):
     # recover signature from signature data recieved
     msg_hash = signed_data[:32]
@@ -128,7 +131,6 @@ def verify_sign(signed_data,msg,pubkey):
     v_sign = bytes_to_long(signed_data[96:97])
     sign_bytes = signed_data[97:]
     signature = SignedMessage( messageHash=msg_hash,r=r_sign,s=s_sign,v=v_sign,signature=sign_bytes)
-    
     # Signature verification  
     #key = ECC.import_key(pubkey)
     #verifier = DSS.new(key, 'fips-186-3')
@@ -153,7 +155,6 @@ def HE_decrypt_model(encrypted_weights, model, context):
     return model
 
 
-
 def HE_encrypt_model(model, context,HE_algorithm):
     context.global_scale = 2 ** 40
     context.generate_galois_keys()
@@ -171,7 +172,6 @@ def HE_encrypt_model(model, context,HE_algorithm):
 def deserialize_data(serialized_data, context,HE_algorithm):
     # Load data from bytes without context metadata
     serialized_weights = pickle.loads(serialized_data)
-    
     # Deserialize weights into TenSEAL BFV vectors using provided context
     deserialized_weights = {}
     for name, weight_bytes in serialized_weights.items():
@@ -179,7 +179,6 @@ def deserialize_data(serialized_data, context,HE_algorithm):
             deserialized_weights[name] = ts.bfv_vector_from(context, weight_bytes)  # deserialize with context
         else:
             deserialized_weights[name] = ts.ckks_vector_from(context, weight_bytes)  # deserialize with context
-    
     return deserialized_weights
 
 
@@ -188,16 +187,14 @@ def serialize_data(encrypted_model):
     serialized_weights = {}
     for name, enc_weight in encrypted_model.items():
         serialized_weights[name] = enc_weight.serialize()  # serialize only the weights, not context
-    
     # Convert to bytes using pickle
     buffer = io.BytesIO()
     pickle.dump(serialized_weights, buffer)
     return buffer.getvalue()
 
-
     
 # Register the client
-def register_client(hash_epk,Project_id):   
+def register_client(hash_epk,Project_id):
     try:
         Call_reg = contract.functions.registerClient(hash_epk,int(Project_id)).transact({'from': ETH_address}) # Send a registration transaction
         receipt = w3.eth.wait_for_transaction_receipt(Call_reg)
@@ -217,7 +214,7 @@ def register_client(hash_epk,Project_id):
         epk_bytes = log_data_bytes[offset+32:offset+32+epk_len]  # Extract publicKey using its length
         onchain_epk = epk_bytes.decode('utf-8')  # Assuming the public key is ASCII/UTF-8 encoded
         assert onchain_epk==hash_epk, 'epk placed on the chain is not same as generated epk !!'
-        print('Project registration: successfully')
+        print('registration in Project : successfully')
         print(f'    Project ID: {project_id}')
         print(f'    Tx: {tx_registration}')
         print(f'    Your Address: {ETH_address}')
@@ -234,11 +231,6 @@ def register_client(hash_epk,Project_id):
             sys.exit()
     return initial_score, tx_registration, project_id
 
-'''
-def task_terminated(Task_Id):
-    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
-    return contract.functions.isProjectTerminated(Task_Id).call()
-'''
 
 def task_completed(task_id, project_id):
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)
@@ -277,7 +269,6 @@ def listen_for_task(timeout): # Wait for a task to be published
     print("Listen for task...")
     start_time = time.time()
     Task_id = Hashed_model = round = hash_keys=project_id =server_address=D_t=0  # Initialize with default value
-
     while True:
         try:
             '''
@@ -303,14 +294,14 @@ def listen_for_task(timeout): # Wait for a task to be published
                 project_id=events[0]['args']['project_id'] 
                 #ipfs_address = events[0]['args']['ipfsAddress']
                 creation_time = time.gmtime(int(events[0]['args']['creationTime']))
-                D_t=events[0]['args']['DeadlineTask']            
+                D_t=time.gmtime(int(events[0]['args']['DeadlineTask']))            
                 if registered_id_p==project_id:
                     print('Published Task Info:')
                     print(f'    Task ID: {Task_id}')
                     print(f'    Project ID: {project_id}')
                     print(f'    Server address: {server_address}')
                     print(f'    Time: {time.strftime("%Y-%m-%d %H:%M:%S (UTC)", creation_time)}')
-                    print(f'    Deadline task: {time.strftime("%Y-%m-%d %H:%M:%S (UTC)", D_t )}')
+                    print(f'    Deadline: {time.strftime("%Y-%m-%d %H:%M:%S (UTC)", D_t )}')
                     print('-'*75)
                     break
             elapsed_time = time.time() - start_time
@@ -323,34 +314,52 @@ def listen_for_task(timeout): # Wait for a task to be published
     return round,Task_id, Hashed_model,hash_keys,project_id , server_address,D_t
 
 
-def update_model_Tx(r, Hash_model,hash_ct_epk,Task_id,project_id):
-    tx_hash = contract.functions.updateModel(r, Hash_model,hash_ct_epk,Task_id,project_id).transact({'from': ETH_address})
-    tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-    gas_used=tx_receipt['gasUsed']
-    tx_update=tx_receipt['transactionHash'].hex()
-    print(' ')
-    print('Train completed, model update Info:')
-    print(f'    Tx: {tx_update}')
-    print(f'    Gas: {gas_used} Wei')
-    print('-'*75)
-    return tx_update
+def update_model_Tx(r, Hash_model, hash_ct_epk, Task_id, project_id):
+    try:
+        nonce = w3.eth.get_transaction_count(ETH_address) # Fetch the latest nonce for the account
+        # Build the transaction
+        transaction = contract.functions.updateModel(r, Hash_model, hash_ct_epk, Task_id, project_id).build_transaction({
+            'from': ETH_address,
+            'nonce': nonce,
+            'gas': 2000000,  # Adjust gas limit if necessary
+            'gasPrice': w3.to_wei('50', 'gwei')
+        })
+        # Sign and send the transaction
+        signed_tx = w3.eth.account.sign_transaction(transaction, private_key=Eth_private_key)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash) # Wait for transaction receipt
+        gas_used = tx_receipt['gasUsed']
+        tx_update = tx_receipt['transactionHash'].hex()
+        print(' ')
+        print('Train completed, model update Info:')
+        print(f'    Tx: {tx_update}')
+        print(f'    Gas: {gas_used} Wei')
+        print('-' * 75)
+        return tx_update
+    except ValueError as e:
+        print(f"Error occurred: {e}")
+        if "nonce" in str(e):
+            print("Retrying transaction with updated nonce...")
+            return update_model_Tx(r, Hash_model, hash_ct_epk, Task_id, project_id)  # Recursive retry
+        raise e
 
 
-def listen_for_feedback(client_address): 
+def listen_for_feedback(current_round,client_address, blocks_lookback=10):
     print("Waiting for feedback...")
+    # Determine the block range
+    latest_block = w3.eth.block_number
+    start_block = max(0, latest_block - blocks_lookback)  # Avoid negative block numbers
+    feedback_filter = contract.events.FeedbackProvided.create_filter(fromBlock=start_block)
     while True:
-        filter = contract.events.FeedbackProvided.create_filter(fromBlock="latest")      # Create a filter for the feedback event
-        feedback_events = filter.get_all_entries()
-        #feedback=filter.get_all_entries()
-        #print("feed=", feedback_events)
-        for feedback in feedback_events: # Iterate through the events and filter by client address
-            event_client_address = feedback['args']['clientAddress']  # Assuming the event contains `clientAddress`
-
-            if event_client_address == client_address: # Only process feedback intended for this specific client
+        feedback_events = feedback_filter.get_all_entries()  # Fetch events from the filter
+        for feedback in feedback_events:
+            event_client_address = feedback['args']['clientAddress']
+            event_round = feedback['args']['round']  # Extract the round from the event
+            if event_client_address == client_address and event_round == current_round:
+                # Process the feedback event if it matches the current round
                 accepted = feedback['args']['accepted']
                 task_id = feedback['args']['taskId']
-                round = feedback['args']['round']
-                tx_hash = feedback['transactionHash'].hex()  # Get transaction hash
+                tx_hash = feedback['transactionHash'].hex()
                 project_id = feedback['args']['project_id']
                 T = feedback['args']['terminate']
                 score_change = feedback['args']['scoreChange']
@@ -358,30 +367,39 @@ def listen_for_feedback(client_address):
                 print('Feedback Info:')
                 print(f'    Tx: {tx_hash}')
                 print(f'    Status: {accepted}')
+                print(f'    Round: {event_round}')
                 print(f'    Score: {score_change}')
                 print(f'    Time: {time.strftime("%Y-%m-%d %H:%M:%S (UTC)", time.gmtime())}')
                 print(f'    Server address: {server_addr}')
-                print('-'*75)
+                print('-' * 75)
                 return project_id, T, score_change
-        time.sleep(1) # Small sleep to avoid overwhelming the blockchain with event polling
+        time.sleep(1)  # Adjust polling frequency as needed
 
 
-'''
+def receive_Model(sock):
+    # Read the size of the message (4 bytes)
+    raw_size = sock.recv(4)
+    if not raw_size:
+        return None
+    data_size = struct.unpack('!I', raw_size)[0]
+    data = b''
+    while len(data) < data_size:    # Read the data in chunks
+        chunk = sock.recv(min(data_size - len(data), 4096))
+        if not chunk:
+            raise ConnectionError("Connection lost while receiving data")
+        data += chunk
+    return data
 
-def verify_models_identical(original_model, deserialized_model):
-    if set(original_model.keys()) != set(deserialized_model.keys()):
-        return False
-        
-    for name in original_model.keys():
-        if original_model[name].serialize() != deserialized_model[name].serialize():
-            return False
-    
-    return True
-'''
+
+def send_model(sock, data):
+    # Prefix the message with its size
+    data_size = len(data)
+    sock.sendall(struct.pack('!I', data_size))
+    sock.sendall(data)
+
 
 
 if __name__ == "__main__":
-
     try:      # Connect to the local Ganache blockchain
         ganache_url = "http://127.0.0.1:7545"  
         w3 = Web3(Web3.HTTPProvider(ganache_url))
@@ -391,11 +409,11 @@ if __name__ == "__main__":
         exit()
 
     Eth_private_key=sys.argv[1]
-    #Eth_private_key = "0xba2039b2b2d9f5d5592b4566b9176983de1a0d97142f83687c52d77a16df6c19"  			# Replace with the client's private key
+    #Eth_private_key = "0x563433de1db220b47a51e0047b4e5a92a0db0814df799706e2a6039f8f39380c"  			# Replace with the client's private key
     contract_address = sys.argv[2] 
-    #contract_address = "0xFAa6d8Bfc6A5c1D96858f179Cc40B49C7Dae52d9"   # Replace with the deployed contract address
+    #contract_address = "0x5941858Ef5e9481a397b3F33829f36845027E04d"   # Replace with the deployed contract address
     num_epochs=int(sys.argv[3])
-    #num_epochs=4
+    #num_epochs=3
     HE_algorithm=sys.argv[4]    # Homomorphic encryption activation
     #HE_algorithm='CKKS'
 
@@ -423,47 +441,44 @@ if __name__ == "__main__":
             serialized_with_key = pickle.load(f)
         HE_config_with_key = ts.context_from(serialized_with_key)
 
-    time.sleep(0.5)
+    time.sleep(random.random())  # avoid transaction collision with other clients
     ini_score, Tx_r , registered_id_p = register_client(hash_data(epk_a), project_id)         # Register to model training
-
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect(('127.0.0.1', 65432))
-
-    hello_msg='Hello!, my ETH address: ' + ETH_address
-    client_socket.send(hello_msg.encode('utf-8'))
-    data= client_socket.recv(4096)
-    session_id= str(data)[2:-1].split(':')[1]
-
-# recive public keys of server
     msg={}
-    msg['Session ID']=session_id
-    msg["pubkey_req"]='pubkeys please'
+    msg["msg_type"]='Hello!'
+    msg["Data"]= ETH_address
+    msg_json=json.dumps(msg)
+    while True:
+        client_socket.send(msg_json.encode('utf-8'))
+        data= client_socket.recv(4096)
+        if b"You haven't registered" not in data:
+            break
+        time.sleep(0.5)
+
+    session_id= str(data)[2:-1].split(':')[1]
+    msg["msg_type"]='pubkeys please'
+    msg['Data']=session_id
     msg_json=json.dumps(msg)
     client_socket.send(msg_json.encode('utf-8'))  # send request for public keys
     data = client_socket.recv(4096)      
     received_data = json.loads(data.decode('utf-8'))
     epk_b_pem = bytes.fromhex(received_data['epk_b_pem'])
-    kpk_b= bytes.fromhex(received_data['kpk_b'])
+    kpk_b= bytes.fromhex(received_data['kpk_b'])    
     assert hash_data(kpk_b+epk_b_pem) == hash_pubkeys, "on-chain and off-chain pub keys are not match :("     
-    #verify_sign(signature, kpk_b+epk_b_pem, pubKey_from_tx(Tx_r))  # verify recieved kpk_b and epk_b signature
     epk_b = ECC.import_key(epk_b_pem) 
     ct, ss_k = kyber768.encrypt(kpk_b)  
-
     msg['epk_a_pem']=epk_a.hex()
     msg['ciphertext']=ct.hex()
-    msg["pubkey_req"]='none'
+    msg["msg_type"]='none'
     msg_json = json.dumps(msg)
     client_socket.send(msg_json.encode('utf-8'))     # send ct and public key
-    client_socket.close()  
-
     ss_e = key_agreement(eph_priv=esk_a, eph_pub=epk_b, kdf=kdf)    # ECDH shared secret 
     SS = ss_k + ss_e     # (ss_k||ss_e) 
-    salt_a=b'\0'*32  # asymmetric salt
-    salt_s = b'\0'*32    # symmetric salt
+    salt_a=salt_s =b'\0'*32  # asymmetric and symmetric salt
     Root_key= HKDF(SS, 32, salt_a, SHA384, 1)     # assymmetric ratcheting 
     chain_key=Root_key
     chain_key, Model_key = HKDF(Root_key, 32, salt_s, SHA384, 2)   # first symmetric ratcheting
-
     timeout=120
     Local_model_info={}
     while True:              # several times contributions (round)
@@ -481,14 +496,10 @@ if __name__ == "__main__":
         if hash_pubkeys !='None':    # recieve a assymmetric ratcheting trigger
             esk_a = ECC.generate(curve='p256')      # client's (Alice) private key ECDH 
             epk_a = bytes(esk_a.public_key().export_key(format='PEM'), 'utf-8')
-
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.connect(('127.0.0.1', 65432))
             msg={}
-            msg["pubkey_req"]='pubkeys please'
-            msg['Session ID']=session_id
+            msg["msg_type"]='update pubkeys'
+            msg['Data']=session_id
             msg_json=json.dumps(msg)
-
             client_socket.send(msg_json.encode('utf-8'))
             data = client_socket.recv(4096)
             received_data = json.loads(data.decode('utf-8'))
@@ -498,7 +509,6 @@ if __name__ == "__main__":
             assert hash_data(kpk_b+epk_b_pem) == hash_pubkeys, "on-chain and off-chain pub keys are not match :("  
             ct, ss_k = kyber768.encrypt(kpk_b)
             hash_ct_epk_a=hash_data(ct+epk_a)    
-
             msg['epk_a_pem']=epk_a.hex()
             msg['ciphertext']=ct.hex()
             msg_json = json.dumps(msg)
@@ -507,12 +517,13 @@ if __name__ == "__main__":
             SS = ss_k + ss_e     # (ss_k||ss_e) 
             Root_key= HKDF(SS, 32, salt_a, SHA384, 1)      # assymmetric ratcheting  
             chain_key=Root_key
-            client_socket.close()
-  
-        # load model info (recieved:)
-        time.sleep(2)
-        Recieved_msg=open(main_dir + f"/server/files/wrapped_data_{ETH_address}.tar.gz",'rb').read()  
-        unwrapped_msg=unwrap_files(unzip(Recieved_msg))
+            time.sleep(0.5)  # avoid conflict double sending in a single chunk 
+        msg={}
+        msg["msg_type"]='Global model please'
+        msg['Data'] = session_id
+        msg_json=json.dumps(msg)
+        client_socket.send(msg_json.encode('utf-8'))
+        unwrapped_msg=unwrap_files((receive_Model(client_socket)))
         signature=unwrapped_msg['signature.bin']
         global_model_ct=unwrapped_msg['global_model.enc']
         verify_sign(signature, global_model_ct, pubKey_from_tx(Tx_r))
@@ -522,7 +533,7 @@ if __name__ == "__main__":
 
         if r!=1 and HE_algorithm!='None':
             global_HE_model=unwraped['global_HE_model.bin']
-            assert Hash_model==hash_data(global_HE_model), " on-chain and off-chain models hash are not match :("
+            assert Hash_model==hash_data(global_HE_model), "on-chain and off-chain models hash are not match :("
             encrypted_weights=deserialize_data(global_HE_model, HE_config_with_key,HE_algorithm)
             HE_dec_model = HE_decrypt_model(encrypted_weights, Local_model, HE_config_with_key)
         else:
@@ -561,12 +572,16 @@ if __name__ == "__main__":
         signed_ct=sign_data(model_ct, Eth_private_key)
 
         # save (send:) wrapped files in zip to server 
-        wraped_msg=wrapfiles(ETH_address, ('signature.bin',signed_ct), ('Local_model.enc', model_ct))
-        with gzip.open(main_dir + f"/server/files/wrapped_data_{ETH_address}.tar.gz", 'wb') as gzip_file:
-            gzip_file.write(wraped_msg)
+        wraped_msg = wrapfiles(ETH_address, ('signature.bin',signed_ct), ('Local_model.enc', model_ct))
+        
+        msg={}
+        msg["msg_type"]='local model update'
+        msg['Data']=session_id
+        msg_json=json.dumps(msg)
+        client_socket.send(msg_json.encode('utf-8'))
+        send_model(client_socket, wraped_msg)
     
-    
-        project_id_fb, T, score=listen_for_feedback(ETH_address)
+        project_id_fb, T, score=listen_for_feedback(r,ETH_address)
         if T:
             if project_id_fb==project_id:
                 print(f'server terminated the project id {project_id_fb}')

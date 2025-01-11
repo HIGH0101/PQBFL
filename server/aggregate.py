@@ -25,27 +25,6 @@ def deserialize_data(serialized_data, context,HE_algorithm):
             deserialized_weights[name] = ts.ckks_vector_from(context, weight_bytes)  # deserialize with context
     return deserialized_weights
 
-'''
-def load_encrypted_weights(file_path, context):
-    encrypted_weights = {}
-    with open(file_path, 'rb') as f:
-        while True:
-            # Read the length of the parameter name (4 bytes)
-            name_len_bytes = f.read(4)
-            if len(name_len_bytes) == 0:
-                break  # End of file reached
-            # Convert the length bytes to an integer
-            name_len = int.from_bytes(name_len_bytes, 'big')
-            # Read the parameter name (as binary and decode)
-            name = f.read(name_len).decode('utf-8')
-            # Read the length of the serialized data (4 bytes)
-            length = int.from_bytes(f.read(4), 'big')
-            # Read the serialized data
-            serialized_weight = f.read(length)
-            # Deserialize the weight back into a BFVVector using the context
-            encrypted_weights[name] = ts.bfv_vector_from(context, serialized_weight)
-    return encrypted_weights
-'''
 
 # Federated Averaging
 def federated_average(global_model, local_models):
@@ -149,8 +128,7 @@ def aggregate_models(client_addrs,HE_algorithm):
         x_tensor = torch.FloatTensor(x_test)
         y_tensor = torch.LongTensor(y_test_encoded)
 
-        # Combine features and labels into a TensorDataset
-        test_dataset = TensorDataset(x_tensor, y_tensor)
+        test_dataset = TensorDataset(x_tensor, y_tensor)  # Combine features and labels into a TensorDataset
 
         global_model.eval()
         test_dataloader = DataLoader(test_dataset, batch_size=64, shuffle=False)
@@ -163,11 +141,8 @@ def aggregate_models(client_addrs,HE_algorithm):
 
                 all_predictions.extend(predictions.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
-
-        # Calculate accuracy
-        accuracy = accuracy_score(all_labels, all_predictions)
-        #print(f'Test Accuracy on global model: {accuracy:.4f}')
-
+        
+        accuracy = accuracy_score(all_labels, all_predictions) # Calculate accuracy
         return global_model, accuracy
-        #torch.save(global_model.state_dict(), main_dir+'/files/global_model.pth')
+
 

@@ -27,13 +27,13 @@ def load_private_keys(file_path):
     return [account['privateKey'] for account in accounts]
 
 
-def run_multiple_clients(contract_address, num_epochs, homomorphic=None):
+def run_multiple_clients(contract_address, num_epochs, num_clients, homomorphic):
     main_dir = os.path.dirname(__file__)
     client_path = main_dir + "/participant/client.py"
     # Get test private keys
     private_keys = load_private_keys(main_dir+"/contract/ganache_accounts.json") 
     # Use ThreadPoolExecutor for concurrent execution
-    with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+    with concurrent.futures.ThreadPoolExecutor(num_clients) as executor:
         # Submit clients for execution
         futures = [
             executor.submit(
@@ -68,9 +68,11 @@ def main():
     
     # Run multiple clients
     run_multiple_clients(
-        contract_address= '0x0E708702C9292A49b647C1Fb5De39f8B3E573a49',#args.contract, 
+        contract_address= '0x9745818366343A229cb66a9ce22162B9c1193C5a',#args.contract, 
         num_epochs= 4, #args.num_epochs, 
-        homomorphic= 'CKKS' #args.homomorphic
+        num_clients= 9,
+        homomorphic= 'None' #args.homomorphic
+        
     )
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ def generate_private_key_from_mnemonic(mnemonic, path):
     return child_key.PrivateKey()
 
 
-def generate_ganache_accounts(mnemonic, num_accounts=10):
+def generate_ganache_accounts(mnemonic, num_accounts):
     accounts = []
     for i in range(1,num_accounts):
         path = f"{Derivation_PATH}{i}"
@@ -40,8 +40,8 @@ def generate_ganache_accounts(mnemonic, num_accounts=10):
     return accounts
    
 
-
-accounts = generate_ganache_accounts(MNEMONIC, num_accounts=10)
+num_accounts=19
+accounts = generate_ganache_accounts(MNEMONIC, num_accounts)
 filename="./contract/ganache_accounts.json"
 with open(filename, "w") as f:
         json.dump(accounts, f, indent=2)
