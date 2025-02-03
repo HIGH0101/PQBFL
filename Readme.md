@@ -1,5 +1,5 @@
 
-#  Post-quantum and blockchain-based Federated Learning protocol (PQBFL)
+#  Post-quantum and blockchain-based Federated Learning Protocol (PQBFL)
  The PQBFL is a quantum-secure blockchain-based protocol for Federated Learning. It guarantees post-quantum confidentiality and also resistancy against the "harvest-now-decrypt-later" attack for the transmitted models in a federated learning system. Blockchain is used as a key exchange facilitator and tracking mechanism for the transmitted models.  
 
 <center>
@@ -80,19 +80,20 @@ There are two modes of operation in PQBFL. Below is a detailed guide on how to u
 | `-id`or `--project_id`   | Server      | A unique identifier for the project to execute.             | 
 | `-r` or `--round`        | Server      | Specifies the number of round requirement.                  |
 | `-p` or `--participants` | Server      | The count of requirement participants.                      |
+| `-d` or `--dataset`      | Both side   | Choose dataset for training (MNIST or UCI_HAR)              |
 | `-H` or `--homomorphic`  | Both side   | Utilize homomorphic encryption (CKKS or BFV) choice.        |
 
 
 **Example: participant mode**
 
 ```
-python main.py -m participant -ek 0x8066640e13243b835a97322b56a47a85d352f3b3c1a5e88b72136e38fa8ab0cf -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -e 8 -H CKKS
+python main.py -m participant -ek 0x8066640e13243b835a97322b56a47a85d352f3b3c1a5e88b72136e38fa8ab0cf -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -e 8 -d UCI_HAR -H CKKS
 ```
 
 **Example: server mode**
 
 ```
-python main.py -m server -ek 0xa640db19ba46309d661d7434203293271a6bf8ce6b446462395dbfe4f6a70db8 -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -id 22 -r 10 -p 3 -H CKKS
+python main.py -m server -ek 0xa640db19ba46309d661d7434203293271a6bf8ce6b446462395dbfe4f6a70db8 -c 0x20dd4Db03EfE8B7585bD8b41f3BD4C6e43399E4D -id 22 -r 10 -p 3 -d UCI_HAR -H CKKS
 ```
 
 ## Note

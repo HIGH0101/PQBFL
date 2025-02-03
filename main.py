@@ -3,8 +3,8 @@ import os
 import argparse
 
 
-def run_client(client_eth_key, contract_address, client_path, num_epochs, homomorphic):
-    cmd = f"python {client_path} {client_eth_key} {contract_address} {num_epochs} "
+def run_client(client_eth_key, contract_address, client_path, num_epochs, dataset,homomorphic):
+    cmd = f"python {client_path} {client_eth_key} {contract_address} {num_epochs} {dataset} "
     if homomorphic:
         cmd += f"{homomorphic}"  # Add -H flag with the selected encryption type
     else:
@@ -12,8 +12,8 @@ def run_client(client_eth_key, contract_address, client_path, num_epochs, homomo
     subprocess.call(cmd, shell=True)
 
 
-def run_server(server_eth_key, contract_address, server_path, project_id, round, participants, homomorphic):
-    cmd = f"python {server_path} {server_eth_key} {contract_address} {project_id} {round} {participants} "
+def run_server(server_eth_key, contract_address, server_path, project_id, round, participants, dataset,homomorphic):
+    cmd = f"python {server_path} {server_eth_key} {contract_address} {project_id} {round} {participants} {dataset} "
     if homomorphic:
         cmd += f"{homomorphic}"  # Add  selected encryption type to -H flag 
     else:
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--round", type=int, help="Round number requirement for the project", default=2)
     parser.add_argument("-p", "--participants", type=int, help="Participants number requirement for the project", default=2)
     parser.add_argument("-H", "--homomorphic", choices=["CKKS", "BFV"], help="Use homomorphic encryption algorithm (CKKS or BFV)")
-
+    parser.add_argument("-d", "--dataset",choices=["MNIST","UCI_HAR"] ,help="Choose dataset for training (MNIST or UCI_HAR)", default="UCI_HAR")
     args = parser.parse_args()
     main_dir = os.path.dirname(__file__)
     
@@ -41,11 +41,11 @@ if __name__ == "__main__":
         client_eth_key = args.eth_key
         num_epochs = args.num_epochs
         client_path = main_dir + "/participant/client.py"  # Replace with the path to your client.py script
-        run_client(client_eth_key, args.contract, client_path, num_epochs, args.homomorphic)
+        run_client(client_eth_key, args.contract, client_path, num_epochs, args.dataset, args.homomorphic)
 
     elif args.mode == "server":
         if not args.project_id:
             parser.error("For server mode, -c, -ek, -r, -id and -p  is required.")
         server_eth_key = args.eth_key  # Assuming server_address is stored in private_key argument
         server_path = main_dir + "/server/server.py"  # Replace with the path to your server.py script
-        run_server(server_eth_key, args.contract, server_path, args.project_id, args.round, args.participants, args.homomorphic)
+        run_server(server_eth_key, args.contract, server_path, args.project_id, args.round, args.participants, args.dataset, args.homomorphic)

@@ -1,101 +1,37 @@
+"""
+Created on Tue Jan  2 14:18:41 2024
+
+@author: HIGHer
+""" 
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from eth_account import Account
-from eth_keys import keys
-#from eth_utils import decode_hex
-from eth_account.messages import encode_defunct
-from eth_account.datastructures import SignedMessage
-from eth_account._utils.legacy_transactions import serializable_unsigned_transaction_from_dict
-from eth_account._utils.signing import to_standard_v
 
 from collections import namedtuple
-#import ipfs_api
-import tarfile, io ,gzip
-#from pqcrypto.sign  import dilithium2 ,sphincs_sha256_128f_simple   #.dilithium2 import generate_keypair,sign,verify
 from pqcrypto.kem import kyber768 
-
-import socket, pickle
-import struct
 
 from Crypto.Protocol.DH import key_agreement
 from Crypto.Protocol.KDF import HKDF
 from Crypto.PublicKey import ECC
-from Crypto.Hash import SHAKE128, SHA384
-from Crypto.Cipher import AES
+from Crypto.Hash import SHA384
 from Crypto.Util.number import *
-#from Crypto.Signature import DSS
 
+import socket, pickle
 import tenseal as ts
-import json
-import hashlib
-import os, sys, time
-#import tempfile
+import os, sys, time,json
+
 import aggregate
 from threading import *
 from queue import Queue
 import torch
 
 
-#from utils import wrapfiles
-#from Utils import utils
-#import utils
+from simple_cnn_config import SimpleCNN
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import *
 
 
-def kdf(x):
-        return SHAKE128.new(x).read(32)
 
-def wrapfiles( *files):   # input sample: ('A.bin', A), ('B.enc',B)
-    tar_buffer = io.BytesIO()  # Create an in-memory TAR archive
-    # Create a tarfile object
-    with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
-        for file_name, file_data in files:
-            # Add the file to the archive
-            file_info = tarfile.TarInfo(name=file_name)
-            file_info.size = len(file_data)
-            tar.addfile(file_info, io.BytesIO(file_data))
-    
-    tar_data = tar_buffer.getvalue()  # Get the TAR archive content as bytes
-    return tar_data
-
-def unwrap_files(tar_data):
-    extracted_files = {}
-    # Create an in-memory byte stream from the tar_data
-    tar_buffer = io.BytesIO(tar_data)
-    with tarfile.open(fileobj=tar_buffer, mode='r') as tar:
-        # Iterate through the members of the tarfile
-        for member in tar.getmembers():
-            file = tar.extractfile(member)
-            if file is not None:
-                extracted_files[member.name] = file.read()
-    return extracted_files
-
-def unzip(gzip_data):
-    with gzip.GzipFile(fileobj=io.BytesIO(gzip_data)) as gz_file:
-        tar_data = gz_file.read()
-    return tar_data
-
-def hash_data(data):
-    hashed_data=hashlib.sha256(data).hexdigest()
-    return hashed_data
-
-def pubKey_from_tx(tx_hash):
-    tx = w3.eth.get_transaction(tx_hash)
-    v = tx['v']
-    r = int(tx['r'].hex(), 16)
-    s = int(tx['s'].hex(), 16)
-    unsigned_tx = serializable_unsigned_transaction_from_dict({     # Reconstruct the unsigned transaction
-        'nonce': tx['nonce'],
-        'gasPrice': tx['gasPrice'],
-        'gas': tx['gas'],
-        'to': tx['to'],
-        'value': tx['value'],
-        'data': tx['input']
-    })
-    tx_hash = unsigned_tx.hash()    
-    standard_v = to_standard_v(v) # Convert v value to standard
-    signature = keys.Signature(vrs=(standard_v, r, s))
-    public_key = signature.recover_public_key_from_msg_hash(tx_hash)     # Recover the public key from the signature
-    return public_key
 
 def generate_keys():
     KeyPair = namedtuple('KeyPair', ['pk', 'sk'])
@@ -105,72 +41,6 @@ def generate_keys():
     ecdh_keys = KeyPair(pk =ecdh_pub, sk =ecdh_priv)
     kyber_keys = KeyPair(pk=kyber_pub, sk=kyebr_priv)
     return ecdh_keys, kyber_keys
-
-
-def sign_data(msg, Eth_private_key):
-    encoded_ct = encode_defunct(msg)
-    signed_ct = w3.eth.account.sign_message(encoded_ct, private_key=Eth_private_key)
-    message_hash =signed_ct.messageHash
-    r_bytes = long_to_bytes(signed_ct.r)
-    s_bytes  = long_to_bytes(signed_ct.s)
-    v_bytes  = long_to_bytes(signed_ct.v)
-    sign_bytes = signed_ct.signature
-    signed_msg = message_hash + r_bytes + s_bytes  + v_bytes  + sign_bytes
-    return signed_msg
-
-def verify_sign(signed_data,msg,pubkey):
-    # recover signature from signature data recieved
-    msg_hash = signed_data[:32]
-    r_sign = bytes_to_long(signed_data[32:64])
-    s_sign = bytes_to_long(signed_data[64:96])
-    v_sign = bytes_to_long(signed_data[96:97])
-    sign_bytes = signed_data[97:]
-    signature = SignedMessage( messageHash=msg_hash,r=r_sign,s=s_sign,v=v_sign,signature=sign_bytes)
-    # Signature verification  
-    #key = ECC.import_key(pubسkey)
-    #verifier = DSS.new(key, 'fips-186-3')
-    #try:                # verify signature of client's public Keys
-    #    verifier.verify(msg, signature)
-    #except ValueError:
-    #    print("The message is not authentic.")
-
-
-def encrypt_data(key,msg):
-    nonce = os.urandom(8)
-    crypto = AES.new(key, AES.MODE_CTR, nonce=nonce)
-    model_ct = crypto.encrypt(msg)
-    encrypted= nonce + model_ct
-    return encrypted
-
-def decrypt_data(key,cipher):
-    nonce = cipher[:8]
-    crypto = AES.new(key, AES.MODE_CTR, nonce=nonce)
-    dec = crypto.decrypt(cipher[8:])
-    return dec
-
-def scale_HE_encrypted(aggregated_weights, num_clients,HE_algorithm,scaling_factor=1000000):
-    if HE_algorithm=='BFV':
-        for name in aggregated_weights:
-            aggregated_weights[name] *= scaling_factor  # Integer scaling (multiplying by large factorto make division integer-friendly)
-            aggregated_weights[name] *= int(scaling_factor / num_clients)  # Integer-safe division (approximate)
-    elif HE_algorithm=='CKKS':
-        scaling_factor = 1 / num_clients
-        for name in aggregated_weights:
-            aggregated_weights[name] *= num_clients  
-            #aggregated_weights[name] = aggregated_weights[name].rescale() # Rescale to manage the scale growth in CKKS
-    return aggregated_weights
-
-
-def serialize_data(encrypted_model):
-    # Serialize each encrypted weight
-    serialized_weights = {}
-    for name, enc_weight in encrypted_model.items():
-        serialized_weights[name] = enc_weight.serialize()  # serialize only the weights, not context
-    # Convert to bytes using pickle
-    buffer = io.BytesIO()
-    pickle.dump(serialized_weights, buffer)
-    return buffer.getvalue()
-
 
 def register_project(project_id, cnt_clients_req, hash_init_model, hash_keys):
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)
@@ -356,47 +226,12 @@ def feedback_TX(r, task_id, project_id, client_address, feedback_score, T):
         except ValueError as e:
             print(f"Transaction failed: {e}. Retrying...")
             time.sleep(2)  # Wait before retrying
-    # If all retries fail
     raise Exception("Feedback transaction failed after retries.")
 
 def analyze_model (Local_model,Task_id,project_id_update):
     res=True
     Feedback_score=1
     return res, Feedback_score
-
-def aggregate_HE_encrypted(list_of_encrypted_weights):
-    aggregated_weights = {}
-    # Initialize the aggregated weights dictionary using the first client's encrypted weights
-    for name in list_of_encrypted_weights[0]:
-        aggregated_weights[name] = list_of_encrypted_weights[0][name].copy()  # Copy the first client's weights
-    
-    # Iterate over the remaining clients and add their encrypted weights
-    for client_weights in list_of_encrypted_weights[1:]:
-        for name in client_weights:
-            aggregated_weights[name] += client_weights[name]  # Homomorphic addition
-    return aggregated_weights
-
-
-def receive_Model(sock):
-    # Read the size of the message (4 bytes)
-    raw_size = sock.recv(4)
-    if not raw_size:
-        return None
-    data_size = struct.unpack('!I', raw_size)[0]
-    data = b''
-    while len(data) < data_size:    # Read the data in chunks
-        chunk = sock.recv(min(data_size - len(data), 4096))
-        if not chunk:
-            raise ConnectionError("Connection lost while receiving data")
-        data += chunk
-    return data
-
-
-def send_model(sock, data):
-    # Prefix the message with its size
-    data_size = len(data)
-    sock.sendall(struct.pack('!I', data_size))
-    sock.sendall(data)
 
 
 def establish_root_key(client_socket,clients_dict,ecdh,kyber,salt_a,session_id):
@@ -472,8 +307,8 @@ def handle_offchain_client(client_socket):    # Handle individual client communi
                 session_id = int(recv_msg["Data"])
                 eth_addr = [addr for addr, details in clients_dict.items() if details["Session ID"] == session_id][0]
                 Client_Model_key=bytes.fromhex(clients_dict[eth_addr]['Model key'])
-                model_ct=encrypt_data(Client_Model_key, wraped_global_model)
-                signed_ct=sign_data(model_ct, Eth_private_key)
+                model_ct=AES_encrypt_data(Client_Model_key, wraped_global_model)
+                signed_ct=sign_data(model_ct, Eth_private_key, w3)
                 global_model_msg=wrapfiles(('signature.bin',signed_ct), ('global_model.enc',model_ct))
                 send_model(client_socket, global_model_msg)
             elif recv_msg["msg_type"] == 'local model update':
@@ -506,17 +341,20 @@ if __name__ == "__main__":
 
 
     Eth_private_key=sys.argv[1]    
-    #Eth_private_key = "0x36a0392505bb1df4df6da23763fa793c2eea1d5f5670139227e61fd8b5cf91a2"  			# Replace with the client's private key
+    #Eth_private_key = "0xb524f75accb35465dc297adb4864be59aaed6b7960ce2e4162c8dda611218f0e"  			# Replace with the client's private key
     contract_address = sys.argv[2]
-    #contract_address = "0x5941858Ef5e9481a397b3F33829f36845027E04d"   # Replace with the deployed contract address
+    #contract_address = "0xD656A5c4Ab375df60244561710B98D5b570A4D95"   # Replace with the deployed contract address
     project_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
-    #project_id=1
+    #project_id=3
     round=int(sys.argv[4])
     #round=4
     client_req=int(sys.argv[5])     # client requirement count 
-    #client_req=5
-    HE_algorithm=sys.argv[6]    # Homomorphic encryption activation
-    #HE_algorithm='CKKS'
+    #client_req=2
+    Dataset_type=sys.argv[6]    # Dataset type
+    #Dataset_type='UCI_HAR' #    UCI_HAR
+    HE_algorithm=sys.argv[7]    # Homomorphic encryption activation
+    #HE_algorithm='None'
+
 
     account = Account.from_key(Eth_private_key)
     Eth_address = account.address   # load the Ethereum account
@@ -540,8 +378,9 @@ if __name__ == "__main__":
     ecdh, kyber = generate_keys()    # remember the ecdh public key is in pem format
     hash_pubkeys=hash_data(kyber.pk+ecdh.pk)
 #-------------------------------------------------
-    Init_model = b'ipfs://Qm...'
-    Hash_model = hash_data(Init_model)
+    Init_Global_model = SimpleCNN(Dataset_type)
+    Init_Global_model = pickle.dumps(Init_Global_model.state_dict())
+    Hash_model = hash_data(Init_Global_model)
     Tx_r =register_project(project_id, client_req, Hash_model, hash_pubkeys)
 
     msg_keys={}
@@ -551,7 +390,6 @@ if __name__ == "__main__":
     registration_queue = Queue()
     stop_event = Event()
 
-    #Thread(target=wait_for_clients, args=(registration_queue,), daemon=True).start()
     Thread(target=wait_for_clients, args=(registration_queue, stop_event), daemon=True).start()
     Thread(target=offchain_listener, args=(server_socket,), daemon=True).start()
 
@@ -576,10 +414,12 @@ if __name__ == "__main__":
     stop_event.set()   # Signal the thread to stop after registration is complete
     print('-'*75)
     clients_info = json.loads(json.dumps(clients_dict, indent=4))
-    Global_Model=Init_model
+    Global_Model=Init_Global_model
     Models=[]
     task_info= {}
     ratchet_renge=2
+    accuracy_list=[]
+   
     for r in range(1,round+1):    
         Task_id=int(str(project_id)+str(r))
         task_info['Round number'] = r
@@ -601,12 +441,11 @@ if __name__ == "__main__":
 
         json_task_info = json.dumps(task_info, indent=4)
         if r!=1 and HE_algorithm!='None':
-            wraped_global_model=wrapfiles(('task_info.json',json_task_info.encode()), ('global_HE_model.bin',global_HE_model))  # Wrap  Model and info files 
+            wraped_global_model=wrapfiles(('task_info.json',json_task_info.encode()), ('global_HE_model.bin',aggregated_HE_model))  # Wrap  Model and info files 
         else:
             wraped_global_model=wrapfiles(('task_info.json',json_task_info.encode()), ('global_model.pth',Global_Model))  # Wrap  Model and info files 
 
-        print(f"Start Round {r}: Waiting for local model updates...") 
-        print('='*20)       
+        print(f"Start Round {r}: Waiting for local model updates...\n"+'='*20)        
         event_queue = Queue()
         block_filter =  w3 .eth.filter('latest')
         worker = Thread(target=listen_for_updates, args=(block_filter,event_queue), daemon=True)
@@ -614,7 +453,7 @@ if __name__ == "__main__":
         client_addrs=[]
         update_dict={}
         cnt_models=0
-        T= False
+        T= False  # Termination flag
         while True:  # Wait for update model
             if not event_queue.empty():
                 print(f'Received {cnt_models+1} Local model update Tx:')
@@ -636,17 +475,17 @@ if __name__ == "__main__":
                 print(json.dumps(update_dict[client_addr], indent=4))
                 client_addrs.append(client_addr)
                 
-            # Load model info (recieved:) and verification
-                time.sleep(0.5)
+            # recieved model info and verification
+                time.sleep(1)
                 if HE_algorithm!='None':
-                    time.sleep(4)
+                    time.sleep(9)
                 Recieved_model=model_info[client_addr]['model_data']
                 unwrapped_msg=unwrap_files(Recieved_model)
                 signature=unwrapped_msg['signature.bin']
                 local_model_ct=unwrapped_msg['Local_model.enc']
-                verify_sign(signature, local_model_ct, pubKey_from_tx(tx_u))
+                verify_sign(signature, local_model_ct, pubKey_from_tx(tx_u,w3))
                 Model_key=bytes.fromhex(clients_dict[client_addr]['Model key'])
-                dec_wrapfile=decrypt_data(Model_key,local_model_ct)
+                dec_wrapfile=AES_decrypt_data(Model_key,local_model_ct)
                 unwraped=unwrap_files(dec_wrapfile)
                 Local_model_info =unwraped['Local_model_info.json']
 
@@ -671,15 +510,16 @@ if __name__ == "__main__":
 
                 if cnt_models==registered_cnt:
                     if HE_algorithm!='None':
-                        HE_aggregated=aggregate.aggregate_models(client_addrs,HE_algorithm) 
-                        Scaled_model=scale_HE_encrypted(HE_aggregated,cnt_models,HE_algorithm)
-                        global_HE_model=serialize_data(Scaled_model)
-                        Hash_model = hash_data(global_HE_model)
-                        open(main_dir + f"/server/files/global_HE_model.bin",'wb').write(global_HE_model) 
+                        aggregated_HE_model = aggregate.aggregate_models(client_addrs,HE_algorithm,Dataset_type) 
+                        Hash_model = hash_data(aggregated_HE_model)
+                        open(main_dir + f"/server/files/global_HE_model.bin",'wb').write(aggregated_HE_model) 
+
                     else:
-                        normal_aggregated,accuracy=aggregate.aggregate_models(client_addrs,HE_algorithm) 
+                        normal_aggregated,accuracy=aggregate.aggregate_models(client_addrs,HE_algorithm,Dataset_type)
+                        Global_Model=pickle.dumps(normal_aggregated.state_dict())
+                        Hash_model = hash_data(Global_Model)
                         torch.save(normal_aggregated.state_dict(), main_dir+'/server/files/global_model.pth')
-                        print('*'*40+f'\nAccuracy global model in round {r}: {accuracy:.4f}\n'+'*'*40)
+                        print('*'*40+f'\nAccuracy global model in round {r}: {accuracy:.5f}\n'+'*'*40)
                     break
             else:
                 time.sleep(1)
@@ -697,7 +537,6 @@ if __name__ == "__main__":
             clients_dict[addr]['Chain key'] = chain_key.hex()  # update keys of dict of clients
         salt_s=(bytes_to_long(salt_s)+1).to_bytes(32, byteorder='big')        #  salt_s  increment(update salt) 
         salt_a=(bytes_to_long(salt_a)+1).to_bytes(32, byteorder='big')        #  salt_a  increment(update salt)           
-
 finish_tash(Task_id,project_id) # transaction termination for recording on blockchain
 finish_project(project_id)
 
