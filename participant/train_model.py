@@ -13,6 +13,9 @@ from torchvision import datasets, transforms
 
 from simple_cnn_config import SimpleCNN 
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+main_dir = os.path.dirname(script_dir)
+
 
 def train_model(model, dataloader, validation_dataloader, criterion, optimizer, epochs, device):
     print_every = len(dataloader)
@@ -74,8 +77,6 @@ def preprocess_mnist(dataset_addr):
 
 
 def train(global_model,num_epochs, dataset_type):
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    main_dir = os.path.dirname(script_dir)
     if dataset_type == "UCI_HAR":
         dataset_addr = main_dir + '/dataset/UCI HAR Dataset/train/'
         dataset, input_size=preprocess_uci_har(dataset_addr)
@@ -90,7 +91,7 @@ def train(global_model,num_epochs, dataset_type):
         dataset_addr = main_dir + '/dataset/'
         dataset, input_size = preprocess_mnist(dataset_addr)
     else:
-        raise ValueError("Unsupported dataset type!")
+        raise ValueError("Something wrong with dataset type")
     torch.manual_seed(42)
 
         # Shuffle the dataset
@@ -135,8 +136,6 @@ def evaluate_model_on_test_data(model, dataset_type, device, batch_size=64):
 
 
 def prepare_test_dataset(dataset_type, batch_size):
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    main_dir = os.path.dirname(script_dir)
     if dataset_type == "UCI_HAR":
         dataset_addr = main_dir + '/dataset/UCI HAR Dataset/test/'
         x_test_file = dataset_addr + 'X_test.txt'

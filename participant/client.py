@@ -218,15 +218,15 @@ if __name__ == "__main__":
         print("An exception occurred in connecting to blockchain (Ganache) or offchain:", e)
         exit()
     Eth_private_key=sys.argv[1]
-    #Eth_private_key = "0xf1f7f4b8ca467cf4d4144cbe093a5a78431eaf986fd07ac8ae11e96b38733e60"  			# Replace with the client's private key
+    #Eth_private_key = "0x26e0e3ad94b5d14f8b74e7b3d42aa4d4bb00069b10aff579be967fb3531a0bc9"  			# Replace with the client's private key
     contract_address = sys.argv[2] 
-    #contract_address = "0xD656A5c4Ab375df60244561710B98D5b570A4D95"   # Replace with the deployed contract address
+    #contract_address = "0x40D4c778FD0FCDf7bAE5315Fab83cd7145d03C2B"   # Replace with the deployed contract address
     num_epochs=int(sys.argv[3])
     #num_epochs=2
     dataset_type=sys.argv[4]    # Dataset type
     #dataset_type='UCI_HAR' #"MNIST"  UCI_HAR
     HE_algorithm=sys.argv[5]    # Homomorphic encryption activation
-    #HE_algorithm='None'
+    #HE_algorithm='BFV'
 
 
     account = Account.from_key(Eth_private_key)
@@ -291,7 +291,7 @@ if __name__ == "__main__":
     Root_key= HKDF(SS, 32, salt_a, SHA384, 1)     # assymmetric ratcheting 
     chain_key=Root_key
     chain_key, Model_key = HKDF(Root_key, 32, salt_s, SHA384, 2)   # first symmetric ratcheting
-    timeout=160
+    timeout=240
     Local_model_info={}
     while True:              # several times contributions (round)
         hash_ct_epk_a='None'

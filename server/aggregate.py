@@ -45,8 +45,7 @@ def serialize_data(encrypted_model, metadata, HE_algorithm):
     return buffer.getvalue()
 
 
-# Federated Averaging
-def federated_average(global_model, local_models):
+def federated_average(global_model, local_models): # Federated Averaging
     num_models = len(local_models)
     # Initialize an empty state_dict for the global model
     global_state_dict = global_model.state_dict()
@@ -132,13 +131,14 @@ def aggregate_ckks(encrypted_weights_list, metadata_list, num_clients):
 def aggregate_models(client_addrs,HE_algorithm,dataset_type):
 
     global_model=SimpleCNN(dataset_type)
-    main_dir = os.path.dirname(__file__)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    main_dir = os.path.dirname(script_dir)
     if HE_algorithm!='None':
         if HE_algorithm=='BFV':
-            with open(main_dir + f'/keys/BFV_without_priv_key.pkl', "rb") as f:
+            with open(main_dir + f'/server/keys/BFV_without_priv_key.pkl', "rb") as f:
                 context_bytes = pickle.load(f)
         if HE_algorithm=='CKKS':
-            with open(main_dir + f'/keys/CKKS_without_priv_key.pkl', "rb") as f:
+            with open(main_dir + f'/server/keys/CKKS_without_priv_key.pkl', "rb") as f:
                 context_bytes = pickle.load(f)
         HE_config = ts.context_from(context_bytes)   
         
@@ -146,7 +146,7 @@ def aggregate_models(client_addrs,HE_algorithm,dataset_type):
         list_of_encrypted_weights = []
         list_of_metadata = []
         for i in client_addrs:
-            local_model_path = main_dir + f'/files/models/local_HE_model_{i}.bin'
+            local_model_path = main_dir + f'/server/files/models/local_HE_model_{i}.bin'
             with open(local_model_path, 'rb') as f:
                 serialized_data = f.read()  
 
@@ -168,9 +168,8 @@ def aggregate_models(client_addrs,HE_algorithm,dataset_type):
     else:
         local_models = [] 
         for i in client_addrs:
-            local_model_path = main_dir+ f'/files/models/local_model_{i}.pth'
-            #local_model = SimpleCNN(input_size, num_classes,dataset_type)               # Initialize a local model
-            local_model=SimpleCNN(dataset_type)
+            local_model_path = main_dir+ f'/server/files/models/local_model_{i}.pth'  
+            local_model=SimpleCNN(dataset_type) # Initialize local model based on the dataset type
             Loaded_model=pickle.loads (open(local_model_path,'rb').read())
             local_model.load_state_dict(Loaded_model)
             local_models.append(local_model)        # Append the local model to the list
@@ -178,11 +177,12 @@ def aggregate_models(client_addrs,HE_algorithm,dataset_type):
         # Aggregate the models
         federated_average(global_model, local_models)
         if dataset_type == "MNIST":
-            dataset_addr = main_dir + '/files/test dataset/MNIST/'
+            dataset_addr = main_dir + '/dataset/'     #'/files/test dataset/MNIST/'
             test_dataset = preprocess_mnist_test(dataset_addr)
         elif dataset_type == "UCI_HAR":              #...\dataset\UCI HAR Dataset\test
-            x_test_file = main_dir+f'/files/test dataset/X_test.txt'
-            y_test_file = main_dir+f'/files/test dataset/y_test.txt'
+            dataset_addr = main_dir + '/dataset/UCI HAR Dataset/test/'
+            x_test_file = dataset_addr + 'X_test.txt'
+            y_test_file = dataset_addr + 'y_test.txt'
             x_test = np.loadtxt(x_test_file)
             y_test = np.loadtxt(y_test_file)
             label_encoder = LabelEncoder()

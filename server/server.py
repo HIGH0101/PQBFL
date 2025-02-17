@@ -341,19 +341,19 @@ if __name__ == "__main__":
 
 
     Eth_private_key=sys.argv[1]    
-    #Eth_private_key = "0xb524f75accb35465dc297adb4864be59aaed6b7960ce2e4162c8dda611218f0e"  			# Replace with the client's private key
+    #Eth_private_key = "0xf0a33a746f3b4925a34d292813c58a5f846ffce2b8a8ee679095ffd16d839152"  			# Replace with the client's private key
     contract_address = sys.argv[2]
-    #contract_address = "0xD656A5c4Ab375df60244561710B98D5b570A4D95"   # Replace with the deployed contract address
+    #contract_address = "0x40D4c778FD0FCDf7bAE5315Fab83cd7145d03C2B"   # Replace with the deployed contract address
     project_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
-    #project_id=3
+    #project_id=1
     round=int(sys.argv[4])
     #round=4
     client_req=int(sys.argv[5])     # client requirement count 
-    #client_req=2
+    #client_req=1
     Dataset_type=sys.argv[6]    # Dataset type
     #Dataset_type='UCI_HAR' #    UCI_HAR
     HE_algorithm=sys.argv[7]    # Homomorphic encryption activation
-    #HE_algorithm='None'
+    #HE_algorithm='BFV'
 
 
     account = Account.from_key(Eth_private_key)
