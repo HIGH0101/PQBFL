@@ -2,29 +2,32 @@
 from web3 import Web3, HTTPProvider
 import json
 from solcx import compile_standard
-import os
+import os, sys
 
 
  #Connect to Ganache (local blockchain)
 ganache_url = "http://127.0.0.1:7545"  # Update with your Ganache URL
 web3 = Web3(HTTPProvider(ganache_url))
 
-# Check connection status
+script_dir = os.path.dirname(os.path.abspath(__file__))
+main_dir = os.path.dirname(script_dir)
+
 if not web3.is_connected():
     print("Error: Unable to connect to Ganache. Please check the URL and try again.")
 else:
     print("Connected to Blockchain (Ganache)")
+    if len(sys.argv) == 3:  #sys inputs
+        deployer_account = sys.argv[1]    
+        private_key = sys.argv[2]
+    else:
+        deployer_account = input("Enter deployer account address: ")
+        private_key = input("Enter deployer private key: ")
 
-    # User input for deployer account and private key
-    deployer_account = input("Enter deployer account address: ")
-    private_key = input("Enter deployer private key: ")
     # Set the deployer account as the default account
     web3.eth.default_account = deployer_account
 
-    # Read the Solidity source code from the .sol file
-    with open("./contract/contract.sol", "r") as f:
+    with open(main_dir+"/contract/contract.sol", "r") as f:
         contract_source_code = f.read()
-
     compiled_sol = compile_standard(
     {
         "language": "Solidity",
@@ -39,17 +42,17 @@ else:
     },
     solc_version="0.8.0",
     ) 
-    with open("./contract/compiled-code.json", "w") as f:
+    with open(main_dir+"/contract/compiled-code.json", "w") as f:
         json.dump(compiled_sol, f)
     # get bytecode
     contract_bytecode = compiled_sol["contracts"]["contract.sol"]["PQB_FederatedLearning"]["evm"]["bytecode"]["object"]
     # get abi
     contract_abi = json.loads(compiled_sol["contracts"]["contract.sol"]["PQB_FederatedLearning"]["metadata"])["output"]["abi"]
 
-    with open("./contract/contract-abi.json", "w") as f:
+    with open(main_dir+"/contract/contract-abi.json", "w") as f:
         json.dump(contract_abi, f)
 
-    # Deploy the contract
+    # Deploying
     contract = web3.eth.contract(abi=contract_abi, bytecode=contract_bytecode)
     nonce = web3.eth.get_transaction_count(deployer_account)
     transaction = contract.constructor().build_transaction({
@@ -63,6 +66,5 @@ else:
     # Wait for the transaction to be mined
     transaction_receipt = web3.eth.wait_for_transaction_receipt(tx_sent)
 
-    # Get the deployed contract address
     deployed_contract_address = transaction_receipt["contractAddress"]
     print(f"Contract deployed successfully at address: {deployed_contract_address}")

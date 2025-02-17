@@ -146,7 +146,7 @@ def aggregate_models(client_addrs,HE_algorithm,dataset_type):
         list_of_encrypted_weights = []
         list_of_metadata = []
         for i in client_addrs:
-            local_model_path = main_dir + f'/server/files/models/local_HE_model_{i}.bin'
+            local_model_path = main_dir + f'/server/files/local models/local_HE_model_{i}.bin'
             with open(local_model_path, 'rb') as f:
                 serialized_data = f.read()  
 
@@ -168,7 +168,7 @@ def aggregate_models(client_addrs,HE_algorithm,dataset_type):
     else:
         local_models = [] 
         for i in client_addrs:
-            local_model_path = main_dir+ f'/server/files/models/local_model_{i}.pth'  
+            local_model_path = main_dir+ f'/server/files/local models/local_model_{i}.pth'  
             local_model=SimpleCNN(dataset_type) # Initialize local model based on the dataset type
             Loaded_model=pickle.loads (open(local_model_path,'rb').read())
             local_model.load_state_dict(Loaded_model)

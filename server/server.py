@@ -496,7 +496,7 @@ if __name__ == "__main__":
                     local_HE_model=unwraped[f'local_HE_model_{client_addr}.bin']
                     assert Hash_local_model==hash_data(local_HE_model), f" on-chain and off-chain Hash of local model {client_addr} are not match :("    # این قسمت شاید اضافه باشه چون صحت مدل با امضا هم میشه فهمید
                     cnt_models+=1  # save local model for using in aggregation
-                    open(main_dir + f"/server/files/models/local_HE_model_{client_addr}.bin",'wb').write(local_HE_model)
+                    open(main_dir + f"/server/files/local models/local_HE_model_{client_addr}.bin",'wb').write(local_HE_model)
                     Feedback_score=0  
                     Tx_f=feedback_TX (r,Task_id, project_id, client_addr, Feedback_score, T)    
                 else:
@@ -505,7 +505,7 @@ if __name__ == "__main__":
                     Res, Feedback_score = analyze_model(Local_model,Task_id_update,project_id_update)
                     if Res:
                         cnt_models+=1  # save local model for using in aggregation
-                        open(main_dir + f"/server/files/models/local_model_{client_addr}.pth",'wb').write(Local_model)  
+                        open(main_dir + f"/server/files/local models/local_model_{client_addr}.pth",'wb').write(Local_model)  
                         Tx_f=feedback_TX (r,Task_id, project_id,client_addr, Feedback_score, T)    
 
                 if cnt_models==registered_cnt:

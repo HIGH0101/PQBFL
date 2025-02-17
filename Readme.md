@@ -62,7 +62,7 @@ you must compile and deploy the solidity contract on Ethereum blockchain (gnanac
 
 ```
 cd contract
-./compile-deploy.py {ETH address} {Private key}
+python compile-deploy.py <ETH address> <Private key>
 ```
 
 ## Usage:
