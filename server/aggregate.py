@@ -45,17 +45,16 @@ def serialize_data(encrypted_model, metadata, HE_algorithm):
     return buffer.getvalue()
 
 
-def federated_average(global_model, local_models): # Federated Averaging
+def federated_average(global_model, local_models):
     num_models = len(local_models)
-    # Initialize an empty state_dict for the global model
     global_state_dict = global_model.state_dict()
-    # Aggregate the parameters from local models
-    for local_model in local_models:
-        local_state_dict = local_model.state_dict()
-        for key in global_state_dict:
-            # Perform federated averaging
-            global_state_dict[key] = sum([local_model.state_dict()[key] for local_model in local_models]) / num_models
+    # Cache all local state dicts first to avoid repeated calls
+    local_state_dicts = [model.state_dict() for model in local_models]
+    # Initialize the global parameters with zeros
+    for key in global_state_dict:
+        global_state_dict[key] = sum([local_state_dict[key] for local_state_dict in local_state_dicts]) / num_models
     global_model.load_state_dict(global_state_dict)
+
 
 
 def preprocess_mnist_test(dataset_addr):
@@ -129,7 +128,6 @@ def aggregate_ckks(encrypted_weights_list, metadata_list, num_clients):
 
 
 def aggregate_models(client_addrs,HE_algorithm,dataset_type):
-
     global_model=SimpleCNN(dataset_type)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     main_dir = os.path.dirname(script_dir)
@@ -149,7 +147,7 @@ def aggregate_models(client_addrs,HE_algorithm,dataset_type):
             local_model_path = main_dir + f'/server/files/local models/local_HE_model_{i}.bin'
             with open(local_model_path, 'rb') as f:
                 serialized_data = f.read()  
-
+    
             encrypted_weights, metadata = deserialize_data(serialized_data, HE_config)
             list_of_encrypted_weights.append(encrypted_weights)
             if HE_algorithm == "BFV":
@@ -157,12 +155,10 @@ def aggregate_models(client_addrs,HE_algorithm,dataset_type):
         if not list_of_encrypted_weights:
             raise ValueError("No encrypted weights found.")
         if HE_algorithm == "BFV":
-        # Enhanced BFV aggregation with scaling compensation
             HE_aggregated,metadata=aggregate_bfv(list_of_encrypted_weights, list_of_metadata, len(client_addrs))
-            serialized_HE_model=serialize_data(HE_aggregated,metadata,HE_algorithm)
         elif HE_algorithm == "CKKS":
             HE_aggregated,metadata=aggregate_ckks(list_of_encrypted_weights, list_of_metadata, len(client_addrs))
-            serialized_HE_model=serialize_data(HE_aggregated,metadata,HE_algorithm) 
+        serialized_HE_model=serialize_data(HE_aggregated,metadata,HE_algorithm) 
         return serialized_HE_model
         
     else:
@@ -176,6 +172,7 @@ def aggregate_models(client_addrs,HE_algorithm,dataset_type):
 
         # Aggregate the models
         federated_average(global_model, local_models)
+
         if dataset_type == "MNIST":
             dataset_addr = main_dir + '/dataset/'     #'/files/test dataset/MNIST/'
             test_dataset = preprocess_mnist_test(dataset_addr)

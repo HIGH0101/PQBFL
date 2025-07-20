@@ -341,19 +341,19 @@ if __name__ == "__main__":
 
 
     Eth_private_key=sys.argv[1]    
-    #Eth_private_key = "0xf0a33a746f3b4925a34d292813c58a5f846ffce2b8a8ee679095ffd16d839152"  			# Replace with the client's private key
+    #Eth_private_key = "0x7b7536f7cfe58d4bd0bb13071899d7dfb7eed090528d1f37c88dc9a660db0445"  			# Replace with the client's private key
     contract_address = sys.argv[2]
-    #contract_address = "0x40D4c778FD0FCDf7bAE5315Fab83cd7145d03C2B"   # Replace with the deployed contract address
+    #contract_address = "0xD897C0ff940599743a6c311b7822e7303eD9d713"   # Replace with the deployed contract address
     project_id=int(sys.argv[3])   #int(input("Enter a Task ID for registration: "))
-    #project_id=1
+    #project_id=6
     round=int(sys.argv[4])
-    #round=4
+    #round=2
     client_req=int(sys.argv[5])     # client requirement count 
     #client_req=1
     Dataset_type=sys.argv[6]    # Dataset type
-    #Dataset_type='UCI_HAR' #    UCI_HAR
+    #Dataset_type='MNIST' #    UCI_HAR
     HE_algorithm=sys.argv[7]    # Homomorphic encryption activation
-    #HE_algorithm='BFV'
+    #HE_algorithm='CKKS'          # 'CKKS', 'BFV', or 'None' for no HE
 
 
     account = Account.from_key(Eth_private_key)
@@ -454,6 +454,8 @@ if __name__ == "__main__":
         update_dict={}
         cnt_models=0
         T= False  # Termination flag
+
+
         while True:  # Wait for update model
             if not event_queue.empty():
                 print(f'Received {cnt_models+1} Local model update Tx:')
@@ -476,7 +478,7 @@ if __name__ == "__main__":
                 client_addrs.append(client_addr)
                 
             # recieved model info and verification
-                time.sleep(1)
+                time.sleep(2)
                 if HE_algorithm!='None':
                     time.sleep(9)
                 Recieved_model=model_info[client_addr]['model_data']
@@ -492,14 +494,7 @@ if __name__ == "__main__":
                 if Hash_ct_epk_a!='None':  # Check on-chain and off-chain hash(ct||epk)
                     assert clients_dict[client_addr]['Hash_ct_epk_a'] == Hash_ct_epk_a  , " off- and on-chain keys not match :("   
 
-                if HE_algorithm!='None':
-                    local_HE_model=unwraped[f'local_HE_model_{client_addr}.bin']
-                    assert Hash_local_model==hash_data(local_HE_model), f" on-chain and off-chain Hash of local model {client_addr} are not match :("    # این قسمت شاید اضافه باشه چون صحت مدل با امضا هم میشه فهمید
-                    cnt_models+=1  # save local model for using in aggregation
-                    open(main_dir + f"/server/files/local models/local_HE_model_{client_addr}.bin",'wb').write(local_HE_model)
-                    Feedback_score=0  
-                    Tx_f=feedback_TX (r,Task_id, project_id, client_addr, Feedback_score, T)    
-                else:
+                if HE_algorithm=='None':
                     Local_model=unwraped[f'local_model_{client_addr}.pth']
                     assert Hash_local_model==hash_data(Local_model), f" on-chain and off-chain Hash of local model {client_addr} are not match :("    # این قسمت شاید اضافه باشه چون صحت مدل با امضا هم میشه فهمید
                     Res, Feedback_score = analyze_model(Local_model,Task_id_update,project_id_update)
@@ -507,22 +502,28 @@ if __name__ == "__main__":
                         cnt_models+=1  # save local model for using in aggregation
                         open(main_dir + f"/server/files/local models/local_model_{client_addr}.pth",'wb').write(Local_model)  
                         Tx_f=feedback_TX (r,Task_id, project_id,client_addr, Feedback_score, T)    
+                else:
+                    local_HE_model=unwraped[f'local_HE_model_{client_addr}.bin']
+                    assert Hash_local_model==hash_data(local_HE_model), f" on-chain and off-chain Hash of local model {client_addr} are not match :("    # این قسمت شاید اضافه باشه چون صحت مدل با امضا هم میشه فهمید
+                    cnt_models+=1  # save local model for using in aggregation
+                    open(main_dir + f"/server/files/local models/local_HE_model_{client_addr}.bin",'wb').write(local_HE_model)
+                    Feedback_score=0  
+                    Tx_f=feedback_TX (r,Task_id, project_id, client_addr, Feedback_score, T) 
 
                 if cnt_models==registered_cnt:
-                    if HE_algorithm!='None':
-                        aggregated_HE_model = aggregate.aggregate_models(client_addrs,HE_algorithm,Dataset_type) 
-                        Hash_model = hash_data(aggregated_HE_model)
-                        open(main_dir + f"/server/files/global_HE_model.bin",'wb').write(aggregated_HE_model) 
-
-                    else:
+                    if HE_algorithm=='None':
                         normal_aggregated,accuracy=aggregate.aggregate_models(client_addrs,HE_algorithm,Dataset_type)
                         Global_Model=pickle.dumps(normal_aggregated.state_dict())
                         Hash_model = hash_data(Global_Model)
                         torch.save(normal_aggregated.state_dict(), main_dir+'/server/files/global_model.pth')
                         print('*'*40+f'\nAccuracy global model in round {r}: {accuracy:.5f}\n'+'*'*40)
+                    else:
+                        aggregated_HE_model= aggregate.aggregate_models(client_addrs,HE_algorithm,Dataset_type) 
+                        Hash_model = hash_data(aggregated_HE_model)
+                        open(main_dir + f"/server/files/global_HE_model.bin",'wb').write(aggregated_HE_model) 
                     break
             else:
-                time.sleep(1)
+                time.sleep(2)
 
         # Symmetric ratcheting of model-key for each client at the of round
         for addr in clients_dict:   

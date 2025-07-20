@@ -218,15 +218,15 @@ if __name__ == "__main__":
         print("An exception occurred in connecting to blockchain (Ganache) or offchain:", e)
         exit()
     Eth_private_key=sys.argv[1]
-    #Eth_private_key = "0x26e0e3ad94b5d14f8b74e7b3d42aa4d4bb00069b10aff579be967fb3531a0bc9"  			# Replace with the client's private key
+    #Eth_private_key = "0x72a284507a64d2ff8960d773c76d35190f2359c20636f4b2caaa7a24c4ef0cd9"  			# Replace with the client's private key
     contract_address = sys.argv[2] 
-    #contract_address = "0x40D4c778FD0FCDf7bAE5315Fab83cd7145d03C2B"   # Replace with the deployed contract address
+    #contract_address = "0xD897C0ff940599743a6c311b7822e7303eD9d713"   # Replace with the deployed contract address
     num_epochs=int(sys.argv[3])
     #num_epochs=2
     dataset_type=sys.argv[4]    # Dataset type
-    #dataset_type='UCI_HAR' #"MNIST"  UCI_HAR
+    #dataset_type='MNIST' #"MNIST"  UCI_HAR
     HE_algorithm=sys.argv[5]    # Homomorphic encryption activation
-    #HE_algorithm='BFV'
+    #HE_algorithm='CKKS'
 
 
     account = Account.from_key(Eth_private_key)
@@ -239,11 +239,6 @@ if __name__ == "__main__":
         contract_abi = json.load(abi_file)      # Load ABI from file
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)  # Create a contract instance
 
-    Tx_r, project_id,server_address,cnt_clients, initial_model_hash, hash_pubkeys=listen_for_projcet()
-
-    esk_a = ECC.generate(curve='p256')      # client's (Alice) private key ECDH 
-    epk_a = bytes(esk_a.public_key().export_key(format='PEM'), 'utf-8')
-
     if HE_algorithm=='CKKS':
         with open(main_dir + f'/participant/keys/CKKS_with_priv_key.pkl', "rb") as f: # load already recieved HE key
             serialized_with_key = pickle.load(f)
@@ -252,6 +247,13 @@ if __name__ == "__main__":
         with open(main_dir + f'/participant/keys/BFV_with_priv_key.pkl', "rb") as f: # load already recieved HE key
             serialized_with_key = pickle.load(f)
         HE_config_with_key = ts.context_from(serialized_with_key)
+    
+    Tx_r, project_id,server_address,cnt_clients, initial_model_hash, hash_pubkeys=listen_for_projcet()
+
+    esk_a = ECC.generate(curve='p256')      # client's (Alice) private key ECDH 
+    epk_a = bytes(esk_a.public_key().export_key(format='PEM'), 'utf-8')
+
+
 
     #time.sleep(random.random())  # avoid transaction collision with other clients
     ini_score, Tx_r , registered_id_p = register_client(hash_data(epk_a), project_id)         # Register to model training
@@ -329,7 +331,7 @@ if __name__ == "__main__":
             SS = ss_k + ss_e     # (ss_k||ss_e) 
             Root_key= HKDF(SS, 32, salt_a, SHA384, 1)      # assymmetric ratcheting  
             chain_key=Root_key
-            time.sleep(1)  # avoid conflict double sending in a single chunk 
+            time.sleep(2)  # avoid conflict double sending in a single chunk 
         msg={}
         msg["msg_type"]='Global model please'
         msg['Data'] = session_id
